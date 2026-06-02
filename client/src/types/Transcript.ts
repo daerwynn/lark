@@ -2,6 +2,7 @@ export type Word = {
   word: string;
   start: number;
   end: number;
+  pitch?: number;
   score?: number;
   estimated?: boolean;
   reading?: string;

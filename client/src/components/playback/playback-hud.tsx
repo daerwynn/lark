@@ -64,9 +64,11 @@ function Disclaimer({ source }: { source: string }) {
 interface PlaybackHudProps {
   title: string;
   artist: string;
+  practiceMode: boolean;
+  onTogglePracticeMode: () => void;
 }
 
-function PlaybackHudImpl({ title, artist }: PlaybackHudProps) {
+function PlaybackHudImpl({ title, artist, practiceMode, onTogglePracticeMode }: PlaybackHudProps) {
   const { duration, guideVolume } = usePlaybackTransportState();
   const { subscribe, getCurrentTime } = usePlaybackTransportActions();
   const { themeIndex, videoFlavor } = usePlaybackThemeState();
@@ -127,6 +129,14 @@ function PlaybackHudImpl({ title, artist }: PlaybackHudProps) {
           <div className={`text-lg text-white${pitchScore ? "" : "/50"}`}>
             Score: {pitchScore ?? "--"}
           </div>
+          <button
+            type="button"
+            className="pointer-events-auto mt-1 rounded-sm border border-white/30 bg-black/25 px-2.5 py-1 text-sm font-medium text-white/90 transition-colors hover:bg-white/10"
+            aria-pressed={practiceMode}
+            onClick={onTogglePracticeMode}
+          >
+            Practice: {practiceMode ? "ON" : "OFF"} [P]
+          </button>
           <HintText>{formatGuideText(guideVolume)}</HintText>
           <HintText>Mic: {micUserEnabled ? micName : "OFF"} [M/N]</HintText>
           <HintText>Monitor: {micMonitorUserEnabled ? "ON" : "OFF"} [R]</HintText>

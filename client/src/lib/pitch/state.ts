@@ -12,6 +12,7 @@ export interface PitchSeries {
   refPitches: (number | null)[];
   userPitches: (number | null)[];
   similarities: number[];
+  times: number[];
 }
 
 export function freqToSemitone(hz: number): number {
@@ -46,6 +47,7 @@ export class PitchStateBuffer {
   refPitches: (number | null)[] = [];
   userPitches: (number | null)[] = [];
   similarities: number[] = [];
+  times: number[] = [];
   private smoothedRef: number | null = null;
   private smoothedUser: number | null = null;
   private lastPushTime = 0;
@@ -68,10 +70,12 @@ export class PitchStateBuffer {
       this.refPitches.shift();
       this.userPitches.shift();
       this.similarities.shift();
+      this.times.shift();
     }
     this.refPitches.push(this.smoothedRef);
     this.userPitches.push(this.smoothedUser);
     this.similarities.push(similarity);
+    this.times.push(time);
   }
 
   snapshot(): PitchSeries {
@@ -79,6 +83,7 @@ export class PitchStateBuffer {
       refPitches: [...this.refPitches],
       userPitches: [...this.userPitches],
       similarities: [...this.similarities],
+      times: [...this.times],
     };
   }
 
@@ -86,6 +91,7 @@ export class PitchStateBuffer {
     this.refPitches = [];
     this.userPitches = [];
     this.similarities = [];
+    this.times = [];
     this.smoothedRef = null;
     this.smoothedUser = null;
     this.lastPushTime = 0;

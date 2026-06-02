@@ -11,12 +11,20 @@ import { usePlaybackConfigPersist } from "@/hooks/playback/use-playback-config-p
 import type { AppConfig } from "@/types/AppConfig";
 import { useCallback, useEffect, useRef } from "react";
 
+export interface PlaybackInputHandlers {
+  onTogglePracticeMode?: () => void;
+  onSetLoopStart?: () => void;
+  onSetLoopEnd?: () => void;
+  onClearLoop?: () => void;
+  onRetryLoop?: () => boolean;
+}
+
 /**
  * Wires keyboard + gamepad input for the playback session. Reads everything it
  * needs from the playback contexts; only the app config is passed in so we can
  * persist guide-volume changes without coupling this hook to the config query.
  */
-export function usePlaybackInput(config: AppConfig | null) {
+export function usePlaybackInput(config: AppConfig | null, handlers: PlaybackInputHandlers = {}) {
   const { paused, isReady, guideVolume } = usePlaybackTransportState();
   const { getCurrentTime, setGuideVolume, handlePause, handleContinue } =
     usePlaybackTransportActions();
@@ -24,6 +32,7 @@ export function usePlaybackInput(config: AppConfig | null) {
   const { firstSegmentStart, lastSegmentEnd, introSkipLeadSec } = usePlaybackTranscriptState();
   const { handleSkipIntro, handleSkipOutro } = usePlaybackTranscriptActions();
   const { handleToggleMic, handleCycleMic, handleToggleMicMonitor } = usePlaybackMicActions();
+  const { onTogglePracticeMode, onSetLoopStart, onSetLoopEnd, onClearLoop, onRetryLoop } = handlers;
 
   const persistConfig = usePlaybackConfigPersist(config);
 
@@ -46,6 +55,8 @@ export function usePlaybackInput(config: AppConfig | null) {
         if (pausedRef.current) return;
 
         if (action.confirm) {
+          if (onRetryLoop?.()) return;
+
           if (!isReady) return;
           const t = getCurrentTime();
           if (t < firstSegmentStart - introSkipLeadSec) {
@@ -65,11 +76,12 @@ export function usePlaybackInput(config: AppConfig | null) {
         introSkipLeadSec,
         handleSkipIntro,
         handleSkipOutro,
+        onRetryLoop,
       ],
     ),
   );
 
-  // Keyboard-only shortcuts (G, T, F, M, N, R, +/-, Space)
+  // Keyboard-only shortcuts (G, T, F, M, N, R, P, loop keys, +/-, Space)
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === " ") {
@@ -79,6 +91,35 @@ export function usePlaybackInput(config: AppConfig | null) {
         } else {
           handlePause();
         }
+        return;
+      }
+
+      if (e.key === "p" || e.key === "P") {
+        e.preventDefault();
+        onTogglePracticeMode?.();
+        return;
+      }
+
+      if (e.key === "[" && onSetLoopStart) {
+        e.preventDefault();
+        onSetLoopStart();
+        return;
+      }
+
+      if (e.key === "]" && onSetLoopEnd) {
+        e.preventDefault();
+        onSetLoopEnd();
+        return;
+      }
+
+      if (e.key === "\\" && onClearLoop) {
+        e.preventDefault();
+        onClearLoop();
+        return;
+      }
+
+      if (e.key === "Enter" && onRetryLoop?.()) {
+        e.preventDefault();
         return;
       }
 
@@ -146,6 +187,11 @@ export function usePlaybackInput(config: AppConfig | null) {
     persistConfig,
     handlePause,
     handleContinue,
+    onTogglePracticeMode,
+    onSetLoopStart,
+    onSetLoopEnd,
+    onClearLoop,
+    onRetryLoop,
     handleToggleMic,
     handleCycleMic,
     handleToggleMicMonitor,

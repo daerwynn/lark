@@ -12,6 +12,7 @@ import { LyricsDisplay } from "@/components/playback/lyrics-display";
 import { PauseOverlay } from "@/components/playback/pause-overlay";
 import { PitchGraph } from "@/components/playback/pitch-graph";
 import { PlaybackHud } from "@/components/playback/playback-hud";
+import { PracticeOverlay } from "@/components/playback/practice-overlay";
 import {
   PlaybackProviders,
   usePlaybackMicState,
@@ -19,9 +20,10 @@ import {
   usePlaybackTransportActions,
   usePlaybackTransportState,
 } from "@/contexts/playback";
-import { usePlaybackInput, usePlaybackResult } from "@/hooks/playback";
+import { usePlaybackInput, usePlaybackResult, usePracticeLoop } from "@/hooks/playback";
 import type { AppConfig } from "@/types/AppConfig";
 import type { Song } from "@/types/Song";
+import { useCallback, useState } from "react";
 
 export interface PlaybackInnerProps {
   song: Song;
@@ -38,8 +40,20 @@ function PlaybackLayout({ song, config }: PlaybackLayoutProps) {
   const { handleContinue, handleExit } = usePlaybackTransportActions();
   const { segments } = usePlaybackTranscriptState();
   const { series } = usePlaybackMicState();
+  const [practiceMode, setPracticeMode] = useState(false);
+  const practiceLoop = usePracticeLoop({ enabled: practiceMode, segments, series });
 
-  usePlaybackInput(config);
+  const handleTogglePracticeMode = useCallback(() => {
+    setPracticeMode((prev) => !prev);
+  }, []);
+
+  usePlaybackInput(config, {
+    onTogglePracticeMode: handleTogglePracticeMode,
+    onSetLoopStart: practiceMode ? practiceLoop.handleSetLoopStart : undefined,
+    onSetLoopEnd: practiceMode ? practiceLoop.handleSetLoopEnd : undefined,
+    onClearLoop: practiceMode ? practiceLoop.handleClearLoop : undefined,
+    onRetryLoop: practiceMode ? practiceLoop.handleRetryLoop : undefined,
+  });
   const result = usePlaybackResult(song);
 
   return (
@@ -48,9 +62,20 @@ function PlaybackLayout({ song, config }: PlaybackLayoutProps) {
 
       {isReady && (
         <>
-          <PlaybackHud title={song.title} artist={song.artist} />
-          <PitchGraph series={series} />
-          <LyricsDisplay segments={segments} />
+          <PlaybackHud
+            title={song.title}
+            artist={song.artist}
+            practiceMode={practiceMode}
+            onTogglePracticeMode={handleTogglePracticeMode}
+          />
+          {practiceMode ? (
+            <PracticeOverlay segments={segments} series={series} loop={practiceLoop} />
+          ) : (
+            <>
+              <PitchGraph series={series} />
+              <LyricsDisplay segments={segments} />
+            </>
+          )}
         </>
       )}
 

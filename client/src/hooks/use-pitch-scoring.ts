@@ -11,6 +11,8 @@ import {
 } from "@/lib/pitch/state";
 import { useEffect, useRef, useState } from "react";
 
+const BACKWARD_SEEK_RESET_SEC = 0.25;
+
 export interface PitchScoringSource {
   isReady: boolean;
   duration: number;
@@ -28,10 +30,12 @@ export function usePitchScoring(
   const scoringRef = useRef(new PitchScoring(1));
   const micPitchRef = useRef(micPitch);
   const singableRef = useRef<number | null>(null);
+  const lastRunTimeRef = useRef(0);
   const [series, setSeries] = useState<PitchSeries>({
     refPitches: [],
     userPitches: [],
     similarities: [],
+    times: [],
   });
   const [score, setScore] = useState(0);
 
@@ -42,6 +46,7 @@ export function usePitchScoring(
       return;
     }
     bufferRef.current.reset();
+    lastRunTimeRef.current = 0;
 
     const vocals = getVocalsBuffer();
     const singable = vocals ? computeSingableTime(vocals) : duration;
@@ -58,6 +63,12 @@ export function usePitchScoring(
     }
 
     const run = (t: number) => {
+      if (lastRunTimeRef.current > 0 && t + BACKWARD_SEEK_RESET_SEC < lastRunTimeRef.current) {
+        bufferRef.current.reset();
+        setSeries(bufferRef.current.snapshot());
+      }
+      lastRunTimeRef.current = t;
+
       if (t <= 0) {
         return;
       }
