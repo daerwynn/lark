@@ -12,3 +12,7 @@ latest.json
 
 # Local-only release/updater notes (not for the public repo)
 RELEASING.md
+
+# Local agent/Codex metadata
+.agents/
+.codex/
