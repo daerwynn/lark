@@ -17,13 +17,14 @@ const loop: PracticeLoopRange = {
 };
 
 describe("playback transport helpers", () => {
-  it("formats playback time as mm:ss below an hour", () => {
-    expect(formatPlaybackTime(0)).toBe("0:00");
-    expect(formatPlaybackTime(65.9)).toBe("1:05");
+  it("formats playback time with millisecond precision below an hour", () => {
+    expect(formatPlaybackTime(0)).toBe("0:00.000");
+    expect(formatPlaybackTime(3.05)).toBe("0:03.050");
+    expect(formatPlaybackTime(83.417)).toBe("1:23.417");
   });
 
-  it("formats playback time as h:mm:ss at one hour and beyond", () => {
-    expect(formatPlaybackTime(3723)).toBe("1:02:03");
+  it("formats playback time with hours and millisecond precision", () => {
+    expect(formatPlaybackTime(3723.004)).toBe("1:02:03.004");
   });
 
   it("clamps negative seeks to zero", () => {

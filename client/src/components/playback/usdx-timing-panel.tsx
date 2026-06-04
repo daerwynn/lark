@@ -9,6 +9,7 @@ import {
   usePlaybackTranscriptState,
   usePlaybackTransportActions,
 } from "@/contexts/playback";
+import { formatPlaybackTime } from "@/lib/playback/transport-controls";
 import type { Segment } from "@/types/Transcript";
 import type { UsdxCalibrationAnchor } from "@/types/UsdxCalibrationAnchor";
 import type { UsdxCalibrationPreview } from "@/types/UsdxCalibrationPreview";
@@ -29,7 +30,12 @@ const OFFSET_STEPS = [-1000, -100, -10, 10, 100, 1000];
 const BPM_STEPS = [-1, -0.1, 0.1, 1];
 const FINE_SEEK_STEPS = [-1, -0.1, 0.1, 1];
 
-function formatSeconds(value: number | null | undefined): string {
+function formatPanelTime(value: number | null | undefined): string {
+  if (value == null || !Number.isFinite(value)) return "--";
+  return formatPlaybackTime(value);
+}
+
+function formatSignedSeconds(value: number | null | undefined): string {
   if (value == null || !Number.isFinite(value)) return "--";
   return `${value.toFixed(3)}s`;
 }
@@ -322,10 +328,10 @@ export function UsdxTimingPanel({ fileHash, open, onClose, onSeekRelative }: Usd
             <Field label="Audio" value={info.audio_file_name} />
             <Field label="Parsed BPM" value={formatBpm(info.parsed_bpm)} />
             <Field label="Parsed GAP" value={formatMs(info.parsed_gap_ms)} />
-            <Field label="Audio Duration" value={formatSeconds(info.audio_duration_secs)} />
-            <Field label="First Note" value={formatSeconds(info.first_note_time_secs)} />
-            <Field label="Last Note End" value={formatSeconds(info.last_note_end_secs)} />
-            <Field label="Mismatch" value={formatSeconds(info.chart_audio_mismatch_secs)} />
+            <Field label="Audio Duration" value={formatPanelTime(info.audio_duration_secs)} />
+            <Field label="First Note" value={formatPanelTime(info.first_note_time_secs)} />
+            <Field label="Last Note End" value={formatPanelTime(info.last_note_end_secs)} />
+            <Field label="Mismatch" value={formatSignedSeconds(info.chart_audio_mismatch_secs)} />
           </div>
         )}
 
@@ -426,8 +432,9 @@ export function UsdxTimingPanel({ fileHash, open, onClose, onSeekRelative }: Usd
                   {selectedSegment?.text.trim() || "No lyric selected"}
                 </p>
                 <p className="text-base text-white/55">
-                  Beat {selectedBeat == null ? "--" : selectedBeat.toFixed(0)} at chart{" "}
-                  {formatSeconds(selectedSegment?.start)}
+                  Beat {selectedBeat == null ? "--" : selectedBeat.toFixed(0)} • Phrase{" "}
+                  {formatPanelTime(selectedSegment?.start)} to{" "}
+                  {formatPanelTime(selectedSegment?.end)}
                 </p>
               </div>
               <button
@@ -452,7 +459,7 @@ export function UsdxTimingPanel({ fileHash, open, onClose, onSeekRelative }: Usd
               label="Early Anchor"
               value={
                 earlyAnchor
-                  ? `Beat ${earlyAnchor.beat.toFixed(0)} at ${formatSeconds(
+                  ? `Beat ${earlyAnchor.beat.toFixed(0)} at ${formatPanelTime(
                       earlyAnchor.audio_time_secs,
                     )}`
                   : "--"
@@ -462,7 +469,7 @@ export function UsdxTimingPanel({ fileHash, open, onClose, onSeekRelative }: Usd
               label="Late Anchor"
               value={
                 lateAnchor
-                  ? `Beat ${lateAnchor.beat.toFixed(0)} at ${formatSeconds(
+                  ? `Beat ${lateAnchor.beat.toFixed(0)} at ${formatPanelTime(
                       lateAnchor.audio_time_secs,
                     )}`
                   : "--"
@@ -485,11 +492,11 @@ export function UsdxTimingPanel({ fileHash, open, onClose, onSeekRelative }: Usd
               <Field label="Preview BPM" value={formatBpm(preview.timing_override.bpm)} />
               <Field
                 label="Preview First Note"
-                value={formatSeconds(preview.first_note_time_secs)}
+                value={formatPanelTime(preview.first_note_time_secs)}
               />
               <Field
                 label="Preview Mismatch"
-                value={formatSeconds(preview.chart_audio_mismatch_secs)}
+                value={formatSignedSeconds(preview.chart_audio_mismatch_secs)}
               />
             </div>
           )}
@@ -499,7 +506,7 @@ export function UsdxTimingPanel({ fileHash, open, onClose, onSeekRelative }: Usd
           <div className="flex flex-wrap items-center justify-between gap-3">
             <p className="text-base text-white/65">
               Current audio time:{" "}
-              <span className="font-semibold">{formatSeconds(currentTime)}</span>
+              <span className="font-semibold">{formatPanelTime(currentTime)}</span>
             </p>
             {onSeekRelative && (
               <div className="flex flex-wrap items-center gap-2">

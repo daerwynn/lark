@@ -6,15 +6,10 @@ import {
   usePlaybackTransportActions,
   usePlaybackTransportState,
 } from "@/contexts/playback";
+import { formatPlaybackTime } from "@/lib/playback/transport-controls";
 import type { VideoFlavor } from "@/lib/playback/video-flavor";
 import { forwardRef, memo, useEffect, useRef } from "react";
 import { isPixabayTheme, themeName } from "./background";
-
-function formatTime(seconds: number): string {
-  const mins = Math.floor(seconds / 60);
-  const secs = Math.floor(seconds) % 60;
-  return `${mins}:${secs.toString().padStart(2, "0")}`;
-}
 
 function formatGuideText(volume: number): string {
   const pct = Math.round(volume * 100);
@@ -88,7 +83,6 @@ function PlaybackHudImpl({
   const { handleSkipIntro, handleSkipOutro } = usePlaybackTranscriptActions();
   const { pitchScore, micUserEnabled, micName, micMonitorUserEnabled } = usePlaybackMicState();
 
-  const lastSecondRef = useRef(-1);
   const timerRef = useRef<HTMLParagraphElement>(null);
   const skipIntroRef = useRef<HTMLButtonElement>(null);
   const skipOutroRef = useRef<HTMLButtonElement>(null);
@@ -96,19 +90,19 @@ function PlaybackHudImpl({
   const showPixabayCredit = isPixabayTheme(themeIndex);
 
   // Updates the timer text and skip-button visibility via direct DOM mutation
-  // (rAF subscriber), only triggering a text update when the displayed second changes.
+  // (rAF subscriber), matching the millisecond precision shown in the transport bar.
   useEffect(() => {
     if (timerRef.current) {
-      timerRef.current.textContent = `${formatTime(getCurrentTime())} / ${formatTime(duration)}`;
+      timerRef.current.textContent = `${formatPlaybackTime(getCurrentTime())} / ${formatPlaybackTime(
+        duration,
+      )}`;
     }
 
     return subscribe((time) => {
-      const sec = Math.floor(time);
-      if (sec !== lastSecondRef.current) {
-        lastSecondRef.current = sec;
-        if (timerRef.current) {
-          timerRef.current.textContent = `${formatTime(time)} / ${formatTime(duration)}`;
-        }
+      if (timerRef.current) {
+        timerRef.current.textContent = `${formatPlaybackTime(time)} / ${formatPlaybackTime(
+          duration,
+        )}`;
       }
 
       if (skipIntroRef.current) {
@@ -128,7 +122,7 @@ function PlaybackHudImpl({
           <h1 className="truncate text-[1.375rem] text-white">{title}</h1>
           <p className="truncate text-base text-white/70">{artist}</p>
           <p ref={timerRef} className="text-base text-white/70">
-            0:00 / {formatTime(duration)}
+            0:00.000 / {formatPlaybackTime(duration)}
           </p>
           <div className="mt-2 flex gap-2">
             <SkipButton ref={skipIntroRef} label="Skip Intro" onClick={handleSkipIntro} />

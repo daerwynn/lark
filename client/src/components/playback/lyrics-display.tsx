@@ -1,17 +1,16 @@
 import { usePlaybackTransportActions, usePlaybackTransportState } from "@/contexts/playback";
+import {
+  findPlaybackSegmentIndex,
+  getPlaybackPhrasePair,
+  isPlaybackSegmentVisible,
+} from "@/lib/playback/lyric-phrases";
 import type { Segment, Word } from "@/types/Transcript";
 import { memo, useEffect, useRef, useState } from "react";
 
-// Timing offsets: lyrics/words appear slightly before their actual start
-// so the visual transition feels in sync with the audio.
-const LYRICS_LEAD = 0.15;
 const WORD_HIGHLIGHT_LEAD = 0.25;
 
 const COUNTDOWN_DURATION = 3.0;
 const COUNTDOWN_GAP_THRESHOLD = 3.5;
-
-// Grace period after a segment ends before it disappears
-const SEGMENT_LINGER = 0.5;
 
 interface WordStyle {
   rgb: string;
@@ -22,8 +21,8 @@ const STYLES = {
   unsung: { rgb: "rgb(255,255,255)", opacity: 0.5 },
   unsungEstimated: { rgb: "rgb(255,200,100)", opacity: 0.4 },
   sung: { rgb: "rgb(255,255,255)", opacity: 1.0 },
-  nextLine: { rgb: "rgb(255,255,255)", opacity: 0.35 },
-  nextLineEstimated: { rgb: "rgb(255,200,100)", opacity: 0.25 },
+  nextLine: { rgb: "rgb(156,163,175)", opacity: 0.72 },
+  nextLineEstimated: { rgb: "rgb(184,154,104)", opacity: 0.62 },
 } as const;
 
 const unsungStyle = (word: Word): WordStyle =>
@@ -50,33 +49,6 @@ function interpolateStyle(from: WordStyle, to: WordStyle, t: number): WordStyle 
     rgb: `rgb(${r},${g},${b})`,
     opacity: lerp(from.opacity, to.opacity, p),
   };
-}
-
-// --- Segment search ---
-
-/**
- * Finds the segment index that should be displayed at a given `time`.
- * Uses `hint` (the last known index) to skip already-passed segments.
- * Prefers the *next* segment when the current time falls in the lead-in window.
- */
-function findCurrentSegment(segments: Segment[], time: number, hint: number): number {
-  const start = hint < segments.length && time >= segments[hint].start - LYRICS_LEAD ? hint : 0;
-
-  for (let i = start; i < segments.length; i++) {
-    if (time >= segments[i].end + SEGMENT_LINGER) {
-      continue;
-    }
-
-    // If we're already in the lead-in of the next segment, jump ahead
-    const next = i + 1;
-    if (next < segments.length && time >= segments[next].start - LYRICS_LEAD) {
-      return next;
-    }
-
-    return i;
-  }
-
-  return Math.max(0, segments.length - 1);
 }
 
 // --- Per-frame DOM updates (called via rAF subscriber, no React re-renders) ---
@@ -170,7 +142,7 @@ function LyricsDisplayImpl({ segments }: LyricsDisplayProps) {
   const animate = isPlaying && !paused;
 
   const [segIdx, setSegIdx] = useState(() =>
-    segments.length === 0 ? 0 : findCurrentSegment(segments, getCurrentTime(), 0),
+    segments.length === 0 ? 0 : findPlaybackSegmentIndex(segments, getCurrentTime(), 0),
   );
 
   const hintRef = useRef(0);
@@ -186,14 +158,16 @@ function LyricsDisplayImpl({ segments }: LyricsDisplayProps) {
     let cancelled = false;
 
     const apply = (time: number) => {
-      const idx = findCurrentSegment(segments, time, hintRef.current);
+      const pair = getPlaybackPhrasePair(segments, time, hintRef.current);
+      const idx = pair.activeIndex;
       if (idx !== hintRef.current) {
         hintRef.current = idx;
         setSegIdx(idx);
       }
 
-      const seg = segments[idx];
-      const isActive = time >= seg.start - LYRICS_LEAD && time <= seg.end + SEGMENT_LINGER;
+      const seg = pair.active;
+      if (!seg) return;
+      const isActive = isPlaybackSegmentVisible(seg, time);
 
       const gapBefore = idx === 0 ? seg.start : seg.start - segments[idx - 1].end;
       const timeUntil = seg.start - time;
@@ -201,7 +175,7 @@ function LyricsDisplayImpl({ segments }: LyricsDisplayProps) {
         gapBefore >= COUNTDOWN_GAP_THRESHOLD && timeUntil > 0 && timeUntil <= COUNTDOWN_DURATION;
 
       const showCurrent = isActive || showCountdown;
-      const hasNext = idx + 1 < segments.length;
+      const hasNext = pair.next != null;
 
       if (containerRef.current) containerRef.current.style.display = showCurrent ? "" : "none";
       if (nextContainerRef.current)
@@ -232,8 +206,9 @@ function LyricsDisplayImpl({ segments }: LyricsDisplayProps) {
     return null;
   }
 
-  const seg = segments[segIdx];
-  const nextSeg = segIdx + 1 < segments.length ? segments[segIdx + 1] : null;
+  const safeSegIdx = Math.min(Math.max(0, segIdx), segments.length - 1);
+  const seg = segments[safeSegIdx];
+  const nextSeg = safeSegIdx + 1 < segments.length ? segments[safeSegIdx + 1] : null;
 
   wordRefs.current = [];
 
@@ -280,13 +255,13 @@ function LyricsDisplayImpl({ segments }: LyricsDisplayProps) {
       {nextSeg && (
         <div
           ref={nextContainerRef}
-          className="max-w-full rounded-md bg-black/25 px-4 py-1.5"
+          className="max-w-full rounded-md bg-black/25 px-5 py-2"
           style={{ display: "none" }}
         >
           <p
             className={lineClass(
               nextHasReading,
-              "text-[1.5rem] leading-tight",
+              "text-[1.85rem] leading-tight font-semibold",
               "gap-x-2 gap-y-0.5",
             )}
           >

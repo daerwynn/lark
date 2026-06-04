@@ -99,7 +99,7 @@ export function PlaybackTransportControls({
         </div>
 
         <div className="flex min-w-0 flex-1 items-center gap-3">
-          <p className="w-16 text-right text-xl font-semibold tabular-nums text-white">
+          <p className="w-28 text-right text-xl font-semibold tabular-nums text-white">
             {formatPlaybackTime(displayTime)}
           </p>
           <input
@@ -107,7 +107,7 @@ export function PlaybackTransportControls({
             className="h-8 min-w-0 flex-1 cursor-pointer accent-white disabled:cursor-not-allowed disabled:opacity-45"
             min={0}
             max={sliderMax}
-            step={0.1}
+            step={0.001}
             value={sliderValue}
             disabled={safeDuration <= 0}
             aria-label="Song position"
@@ -116,7 +116,7 @@ export function PlaybackTransportControls({
             )}`}
             onChange={(event) => onSeekRequested(Number(event.currentTarget.value))}
           />
-          <p className="w-16 text-xl font-semibold tabular-nums text-white/72">
+          <p className="w-28 text-xl font-semibold tabular-nums text-white/72">
             {formatPlaybackTime(safeDuration)}
           </p>
         </div>

@@ -18,16 +18,18 @@ export function skipPlaybackTime(
 }
 
 export function formatPlaybackTime(seconds: number): string {
-  const totalSeconds = Math.max(0, Math.floor(finiteOrZero(seconds)));
-  const hrs = Math.floor(totalSeconds / 3600);
-  const mins = Math.floor((totalSeconds % 3600) / 60);
-  const secs = totalSeconds % 60;
+  const totalMilliseconds = Math.round(Math.max(0, finiteOrZero(seconds)) * 1000);
+  const hrs = Math.floor(totalMilliseconds / 3_600_000);
+  const mins = Math.floor((totalMilliseconds % 3_600_000) / 60_000);
+  const secs = Math.floor((totalMilliseconds % 60_000) / 1000);
+  const millis = totalMilliseconds % 1000;
+  const secondsText = `${secs.toString().padStart(2, "0")}.${millis.toString().padStart(3, "0")}`;
 
   if (hrs > 0) {
-    return `${hrs}:${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
+    return `${hrs}:${mins.toString().padStart(2, "0")}:${secondsText}`;
   }
 
-  return `${mins}:${secs.toString().padStart(2, "0")}`;
+  return `${mins}:${secondsText}`;
 }
 
 export function stopPlaybackTarget(activeLoop: PracticeLoopRange | null, duration: number): number {

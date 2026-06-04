@@ -1,5 +1,6 @@
 import { usePlaybackTransportActions, usePlaybackTransportState } from "@/contexts/playback";
 import type { PracticeLoopControls } from "@/hooks/playback";
+import { formatPlaybackTime } from "@/lib/playback/transport-controls";
 import type { PitchSeries } from "@/lib/pitch/state";
 import type { PracticeCountInSec, PracticeLoopRange } from "@/lib/practice/practice-loop";
 import {
@@ -102,25 +103,20 @@ function lineColor(similarity: number): string {
   return USER_LOW;
 }
 
-function formatTime(seconds: number): string {
-  const safe = Math.max(0, Number.isFinite(seconds) ? seconds : 0);
-  const mins = Math.floor(safe / 60);
-  const secs = Math.floor(safe) % 60;
-  return `${mins}:${secs.toString().padStart(2, "0")}`;
-}
-
 function loopSource(range: PracticeLoopRange): string {
   return range.source === "phrase" ? "Phrase" : "Manual";
 }
 
 function loopSummary(loop: PracticeLoopControls): string {
   if (loop.activeLoop) {
-    return `${loopSource(loop.activeLoop)}: ${formatTime(loop.activeLoop.start)} to ${formatTime(loop.activeLoop.end)}`;
+    return `${loopSource(loop.activeLoop)}: ${formatPlaybackTime(
+      loop.activeLoop.start,
+    )} to ${formatPlaybackTime(loop.activeLoop.end)}`;
   }
 
   if (loop.manualStart != null || loop.manualEnd != null) {
-    const start = loop.manualStart == null ? "--" : formatTime(loop.manualStart);
-    const end = loop.manualEnd == null ? "--" : formatTime(loop.manualEnd);
+    const start = loop.manualStart == null ? "--" : formatPlaybackTime(loop.manualStart);
+    const end = loop.manualEnd == null ? "--" : formatPlaybackTime(loop.manualEnd);
     return `Marks: ${start} to ${end}`;
   }
 
@@ -409,6 +405,10 @@ function PracticeOverlayImpl({ segments, series, loop }: PracticeOverlayProps) {
   }, [lane.size, model, currentTime, loop.activeLoop]);
 
   const phrase = model.currentSegment?.text.trim() || "Waiting for the first phrase";
+  const nextPhrase =
+    model.currentSegmentIndex >= 0 && model.currentSegmentIndex + 1 < segments.length
+      ? segments[model.currentSegmentIndex + 1].text.trim()
+      : "";
   const match = model.matchQuality == null ? "--" : `${model.matchQuality}%`;
   const status = isPlaying ? "Live" : "Paused";
   const attempt = loop.lastAttemptScore == null ? "--" : `${loop.lastAttemptScore}%`;
@@ -507,6 +507,11 @@ function PracticeOverlayImpl({ segments, series, loop }: PracticeOverlayProps) {
         <p className="line-clamp-2 text-center text-5xl leading-tight font-semibold text-white drop-shadow">
           {phrase}
         </p>
+        {nextPhrase && (
+          <p className="mt-2 line-clamp-2 text-center text-3xl leading-tight font-semibold text-gray-400/80 drop-shadow">
+            {nextPhrase}
+          </p>
+        )}
         <div className="mt-3 flex justify-center gap-6 text-lg text-white/60">
           <SourceLabel source={model.expectedSource} />
           <span>Live trace: microphone</span>
