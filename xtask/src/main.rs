@@ -16,7 +16,7 @@ fn main() -> ExitCode {
         .parent()
         .expect("xtask must live one level below workspace root");
 
-    let mut command = Command::new("pnpm");
+    let mut command = Command::new(if cfg!(windows) { "pnpm.cmd" } else { "pnpm" });
     command
         .current_dir(workspace_root.join("client"))
         .arg("tauri")
