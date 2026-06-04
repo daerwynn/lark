@@ -27,6 +27,7 @@ export interface PlaybackTranscriptActions {
   handleSkipIntro: () => void;
   handleSkipOutro: () => void;
   clearSkipOutroPending: () => void;
+  reloadTranscript: () => Promise<void>;
 }
 
 const TranscriptStateContext = createContext<PlaybackTranscriptState | null>(null);
@@ -42,7 +43,7 @@ export function PlaybackTranscriptProvider({
   children,
 }: PlaybackTranscriptProviderProps) {
   const { seek, pauseAudio } = usePlaybackTransportActions();
-  const { segments, transcriptSource } = usePlaybackTranscript(fileHash);
+  const { segments, transcriptSource, reloadTranscript } = usePlaybackTranscript(fileHash);
   const [skipOutroPending, setSkipOutroPending] = useState(false);
 
   const firstSegmentStart = segments.length > 0 ? segments[0].start : 0;
@@ -84,8 +85,9 @@ export function PlaybackTranscriptProvider({
       handleSkipIntro,
       handleSkipOutro,
       clearSkipOutroPending,
+      reloadTranscript,
     }),
-    [handleSkipIntro, handleSkipOutro, clearSkipOutroPending],
+    [handleSkipIntro, handleSkipOutro, clearSkipOutroPending, reloadTranscript],
   );
 
   return (

@@ -21,7 +21,8 @@ use lyrics::{load_lyrics, save_lyrics, search_lrclib_lyrics};
 use microphones::{list_microphones, set_monitor_gain, start_mic_capture, stop_mic_capture};
 use playback::{
     ensure_mp3_stems, ensure_playable_source_video, fetch_pixabay_videos, get_audio_paths,
-    load_transcript,
+    load_transcript, load_usdx_timing_info, preview_usdx_calibration, reset_usdx_timing_override,
+    save_usdx_timing_override,
 };
 use profile::{add_score, create_profile, delete_profile, load_profiles, switch_profile};
 use scanner::{
@@ -130,6 +131,10 @@ pub fn run() {
             save_lyrics,
             // Playback
             load_transcript,
+            load_usdx_timing_info,
+            preview_usdx_calibration,
+            save_usdx_timing_override,
+            reset_usdx_timing_override,
             get_audio_paths,
             ensure_mp3_stems,
             ensure_playable_source_video,

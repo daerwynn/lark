@@ -60,6 +60,17 @@ impl PixabayVideoDownloaded {
 
 pub fn load_transcript(file_hash: &str) -> Result<serde_json::Value, NightingaleError> {
     let cache = CacheDir::new();
+    if let Some(song) = library_db::load_song_by_hash(file_hash).ok().flatten() {
+        if song.usdx.is_some() {
+            match crate::usdx::synthesize_transcript_for_song(&song) {
+                Ok(value) => return Ok(value),
+                Err(err) => warn!(
+                    "Failed to synthesize adjusted USDX transcript for {file_hash}; falling back to cache: {err}"
+                ),
+            }
+        }
+    }
+
     let path = resolve_transcript_path(&cache, file_hash);
     let data = std::fs::read_to_string(&path)?;
     let value = serde_json::from_str(&data)?;

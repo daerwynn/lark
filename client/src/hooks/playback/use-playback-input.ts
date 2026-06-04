@@ -13,10 +13,18 @@ import { useCallback, useEffect, useRef } from "react";
 
 export interface PlaybackInputHandlers {
   onTogglePracticeMode?: () => void;
+  onToggleUsdxTiming?: () => void;
   onSetLoopStart?: () => void;
   onSetLoopEnd?: () => void;
   onClearLoop?: () => void;
   onRetryLoop?: () => boolean;
+}
+
+function isEditableTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  if (target.isContentEditable) return true;
+  const tag = target.tagName.toLowerCase();
+  return tag === "input" || tag === "textarea" || tag === "select";
 }
 
 /**
@@ -32,7 +40,14 @@ export function usePlaybackInput(config: AppConfig | null, handlers: PlaybackInp
   const { firstSegmentStart, lastSegmentEnd, introSkipLeadSec } = usePlaybackTranscriptState();
   const { handleSkipIntro, handleSkipOutro } = usePlaybackTranscriptActions();
   const { handleToggleMic, handleCycleMic, handleToggleMicMonitor } = usePlaybackMicActions();
-  const { onTogglePracticeMode, onSetLoopStart, onSetLoopEnd, onClearLoop, onRetryLoop } = handlers;
+  const {
+    onTogglePracticeMode,
+    onToggleUsdxTiming,
+    onSetLoopStart,
+    onSetLoopEnd,
+    onClearLoop,
+    onRetryLoop,
+  } = handlers;
 
   const persistConfig = usePlaybackConfigPersist(config);
 
@@ -81,9 +96,13 @@ export function usePlaybackInput(config: AppConfig | null, handlers: PlaybackInp
     ),
   );
 
-  // Keyboard-only shortcuts (G, T, F, M, N, R, P, loop keys, +/-, Space)
+  // Keyboard-only shortcuts (G, T, F, M, N, R, P, U, loop keys, +/-, Space)
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
+      if (isEditableTarget(e.target)) {
+        return;
+      }
+
       if (e.key === " ") {
         e.preventDefault();
         if (paused) {
@@ -97,6 +116,12 @@ export function usePlaybackInput(config: AppConfig | null, handlers: PlaybackInp
       if (e.key === "p" || e.key === "P") {
         e.preventDefault();
         onTogglePracticeMode?.();
+        return;
+      }
+
+      if (e.key === "u" || e.key === "U") {
+        e.preventDefault();
+        onToggleUsdxTiming?.();
         return;
       }
 
@@ -188,6 +213,7 @@ export function usePlaybackInput(config: AppConfig | null, handlers: PlaybackInp
     handlePause,
     handleContinue,
     onTogglePracticeMode,
+    onToggleUsdxTiming,
     onSetLoopStart,
     onSetLoopEnd,
     onClearLoop,

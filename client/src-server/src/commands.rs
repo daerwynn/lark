@@ -142,8 +142,9 @@ async fn dispatch(events: std::sync::Arc<EventBus>, name: &str, payload: Value) 
                 password: String,
             }
             let args: Args = deserialize(payload)?;
-            let result = app_core::jellyfin_login(&args.base_url, &args.username, &args.password, None)
-                .map_err(|e| ApiError::bad_request(e.to_string()))?;
+            let result =
+                app_core::jellyfin_login(&args.base_url, &args.username, &args.password, None)
+                    .map_err(|e| ApiError::bad_request(e.to_string()))?;
             Ok(serde_json::to_value(result).map_err(serde_err)?)
         }
         "jellyfin_ping" => {
@@ -266,6 +267,55 @@ async fn dispatch(events: std::sync::Arc<EventBus>, name: &str, payload: Value) 
             let args: FileHashArgs = deserialize(payload)?;
             app_core::load_transcript(&args.file_hash)
                 .map_err(|e| ApiError::internal(e.to_string()))
+        }
+        "load_usdx_timing_info" => {
+            let args: FileHashArgs = deserialize(payload)?;
+            Ok(serde_json::to_value(
+                app_core::load_usdx_timing_info(&args.file_hash)
+                    .map_err(|e| ApiError::bad_request(e.to_string()))?,
+            )
+            .map_err(serde_err)?)
+        }
+        "preview_usdx_calibration" => {
+            #[derive(Deserialize)]
+            #[serde(rename_all = "camelCase")]
+            struct Args {
+                file_hash: String,
+                early_anchor: app_core::UsdxCalibrationAnchor,
+                late_anchor: app_core::UsdxCalibrationAnchor,
+            }
+            let args: Args = deserialize(payload)?;
+            Ok(serde_json::to_value(
+                app_core::preview_usdx_calibration(
+                    &args.file_hash,
+                    args.early_anchor,
+                    args.late_anchor,
+                )
+                .map_err(|e| ApiError::bad_request(e.to_string()))?,
+            )
+            .map_err(serde_err)?)
+        }
+        "save_usdx_timing_override" => {
+            #[derive(Deserialize)]
+            #[serde(rename_all = "camelCase")]
+            struct Args {
+                file_hash: String,
+                timing_override: app_core::UsdxTimingOverride,
+            }
+            let args: Args = deserialize(payload)?;
+            Ok(serde_json::to_value(
+                app_core::save_usdx_timing_override(&args.file_hash, args.timing_override)
+                    .map_err(|e| ApiError::bad_request(e.to_string()))?,
+            )
+            .map_err(serde_err)?)
+        }
+        "reset_usdx_timing_override" => {
+            let args: FileHashArgs = deserialize(payload)?;
+            Ok(serde_json::to_value(
+                app_core::reset_usdx_timing_override(&args.file_hash)
+                    .map_err(|e| ApiError::bad_request(e.to_string()))?,
+            )
+            .map_err(serde_err)?)
         }
         "get_audio_paths" => {
             let args: FileHashArgs = deserialize(payload)?;

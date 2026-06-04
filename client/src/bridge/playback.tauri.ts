@@ -1,10 +1,44 @@
 import type { MediaEndpoint } from "@/types/MediaEndpoint";
 import type { AudioPaths } from "@/types/Transcript";
 import type { Transcript } from "@/types/Transcript";
+import type { UsdxCalibrationAnchor } from "@/types/UsdxCalibrationAnchor";
+import type { UsdxCalibrationPreview } from "@/types/UsdxCalibrationPreview";
+import type { UsdxTimingInfo } from "@/types/UsdxTimingInfo";
+import type { UsdxTimingOverride } from "@/types/UsdxTimingOverride";
 import { invoke, listen, type UnlistenFn } from "./runtime";
 
 export const loadTranscript = async (fileHash: string): Promise<Transcript> => {
   return await invoke<Transcript>("load_transcript", { fileHash });
+};
+
+export const loadUsdxTimingInfo = async (fileHash: string): Promise<UsdxTimingInfo> => {
+  return await invoke<UsdxTimingInfo>("load_usdx_timing_info", { fileHash });
+};
+
+export const previewUsdxCalibration = async (
+  fileHash: string,
+  earlyAnchor: UsdxCalibrationAnchor,
+  lateAnchor: UsdxCalibrationAnchor,
+): Promise<UsdxCalibrationPreview> => {
+  return await invoke<UsdxCalibrationPreview>("preview_usdx_calibration", {
+    fileHash,
+    earlyAnchor,
+    lateAnchor,
+  });
+};
+
+export const saveUsdxTimingOverride = async (
+  fileHash: string,
+  timingOverride: UsdxTimingOverride,
+): Promise<UsdxTimingInfo> => {
+  return await invoke<UsdxTimingInfo>("save_usdx_timing_override", {
+    fileHash,
+    timingOverride,
+  });
+};
+
+export const resetUsdxTimingOverride = async (fileHash: string): Promise<UsdxTimingInfo> => {
+  return await invoke<UsdxTimingInfo>("reset_usdx_timing_override", { fileHash });
 };
 
 export const getAudioPaths = async (fileHash: string): Promise<AudioPaths> => {

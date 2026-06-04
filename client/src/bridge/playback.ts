@@ -7,8 +7,12 @@ import {
   getAudioPaths as tauriRawGetAudioPaths,
   getMediaEndpoint as tauriGetMediaEndpoint,
   loadTranscript as tauriLoadTranscript,
+  loadUsdxTimingInfo as tauriLoadUsdxTimingInfo,
   onPixabayVideoDownloaded as tauriOnPixabayVideoDownloaded,
   onStemsReady as tauriOnStemsReady,
+  previewUsdxCalibration as tauriPreviewUsdxCalibration,
+  resetUsdxTimingOverride as tauriResetUsdxTimingOverride,
+  saveUsdxTimingOverride as tauriSaveUsdxTimingOverride,
 } from "./playback.tauri";
 import { isTauri } from "./runtime";
 
@@ -103,6 +107,10 @@ export const playbackAdapter: PlaybackAdapter = isTauri ? tauriPlaybackAdapter :
 // ─── Re-exports for command/event call sites ─────────────────────────────
 
 export const loadTranscript = tauriLoadTranscript;
+export const loadUsdxTimingInfo = tauriLoadUsdxTimingInfo;
+export const previewUsdxCalibration = tauriPreviewUsdxCalibration;
+export const saveUsdxTimingOverride = tauriSaveUsdxTimingOverride;
+export const resetUsdxTimingOverride = tauriResetUsdxTimingOverride;
 export const ensureMp3Stems = tauriEnsureMp3Stems;
 export const ensurePlayableSourceVideo = tauriEnsurePlayableSourceVideo;
 export const fetchPixabayVideos = tauriFetchPixabayVideos;

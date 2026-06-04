@@ -13,6 +13,7 @@ import { PauseOverlay } from "@/components/playback/pause-overlay";
 import { PitchGraph } from "@/components/playback/pitch-graph";
 import { PlaybackHud } from "@/components/playback/playback-hud";
 import { PracticeOverlay } from "@/components/playback/practice-overlay";
+import { UsdxTimingPanel } from "@/components/playback/usdx-timing-panel";
 import {
   PlaybackProviders,
   usePlaybackMicState,
@@ -41,14 +42,26 @@ function PlaybackLayout({ song, config }: PlaybackLayoutProps) {
   const { segments } = usePlaybackTranscriptState();
   const { series } = usePlaybackMicState();
   const [practiceMode, setPracticeMode] = useState(false);
+  const [usdxTimingOpen, setUsdxTimingOpen] = useState(false);
+  const isUsdx = song.transcript_source === "Usdx" || song.usdx != null;
   const practiceLoop = usePracticeLoop({ enabled: practiceMode, segments, series });
 
   const handleTogglePracticeMode = useCallback(() => {
     setPracticeMode((prev) => !prev);
   }, []);
 
+  const handleToggleUsdxTiming = useCallback(() => {
+    if (!isUsdx) return;
+    setUsdxTimingOpen((prev) => !prev);
+  }, [isUsdx]);
+
+  const handleCloseUsdxTiming = useCallback(() => {
+    setUsdxTimingOpen(false);
+  }, []);
+
   usePlaybackInput(config, {
     onTogglePracticeMode: handleTogglePracticeMode,
+    onToggleUsdxTiming: isUsdx ? handleToggleUsdxTiming : undefined,
     onSetLoopStart: practiceMode ? practiceLoop.handleSetLoopStart : undefined,
     onSetLoopEnd: practiceMode ? practiceLoop.handleSetLoopEnd : undefined,
     onClearLoop: practiceMode ? practiceLoop.handleClearLoop : undefined,
@@ -67,6 +80,9 @@ function PlaybackLayout({ song, config }: PlaybackLayoutProps) {
             artist={song.artist}
             practiceMode={practiceMode}
             onTogglePracticeMode={handleTogglePracticeMode}
+            usdxTimingAvailable={isUsdx}
+            usdxTimingOpen={usdxTimingOpen}
+            onToggleUsdxTiming={handleToggleUsdxTiming}
           />
           {practiceMode ? (
             <PracticeOverlay segments={segments} series={series} loop={practiceLoop} />
@@ -75,6 +91,13 @@ function PlaybackLayout({ song, config }: PlaybackLayoutProps) {
               <PitchGraph series={series} />
               <LyricsDisplay segments={segments} />
             </>
+          )}
+          {isUsdx && (
+            <UsdxTimingPanel
+              fileHash={song.file_hash}
+              open={usdxTimingOpen}
+              onClose={handleCloseUsdxTiming}
+            />
           )}
         </>
       )}

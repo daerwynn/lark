@@ -1,9 +1,40 @@
-use app_core::{ensure_mp3_stems_ready_payload, AudioPaths, PixabayVideoDownloaded};
+use app_core::{
+    ensure_mp3_stems_ready_payload, AudioPaths, PixabayVideoDownloaded, UsdxCalibrationAnchor,
+    UsdxCalibrationPreview, UsdxTimingInfo, UsdxTimingOverride,
+};
 use tauri::{AppHandle, Emitter};
 
 #[tauri::command]
 pub fn load_transcript(file_hash: String) -> Result<serde_json::Value, String> {
     app_core::load_transcript(&file_hash).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn load_usdx_timing_info(file_hash: String) -> Result<UsdxTimingInfo, String> {
+    app_core::load_usdx_timing_info(&file_hash).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn preview_usdx_calibration(
+    file_hash: String,
+    early_anchor: UsdxCalibrationAnchor,
+    late_anchor: UsdxCalibrationAnchor,
+) -> Result<UsdxCalibrationPreview, String> {
+    app_core::preview_usdx_calibration(&file_hash, early_anchor, late_anchor)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn save_usdx_timing_override(
+    file_hash: String,
+    timing_override: UsdxTimingOverride,
+) -> Result<UsdxTimingInfo, String> {
+    app_core::save_usdx_timing_override(&file_hash, timing_override).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn reset_usdx_timing_override(file_hash: String) -> Result<UsdxTimingInfo, String> {
+    app_core::reset_usdx_timing_override(&file_hash).map_err(|e| e.to_string())
 }
 
 #[tauri::command]

@@ -135,6 +135,9 @@ interface WordTokenProps {
 }
 
 function WordToken({ word, hasReading, isLast, readingClass, refSetter, style }: WordTokenProps) {
+  const displayText = word.display ?? word.word;
+  const hasDisplaySpacing = word.display != null;
+
   return (
     <span
       ref={refSetter}
@@ -146,8 +149,8 @@ function WordToken({ word, hasReading, isLast, readingClass, refSetter, style }:
           {word.reading ?? "\u00A0"}
         </span>
       )}
-      <span>{word.word}</span>
-      {!hasReading && !isLast ? " " : ""}
+      <span>{displayText}</span>
+      {!hasReading && !hasDisplaySpacing && !isLast ? " " : ""}
     </span>
   );
 }

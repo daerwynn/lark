@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+exec codex resume --last \
+  --ask-for-approval never \
+  --sandbox workspace-write \
+  --config sandbox_workspace_write.network_access=true \
+  "$@"
