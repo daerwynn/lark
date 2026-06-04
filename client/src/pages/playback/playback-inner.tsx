@@ -12,6 +12,7 @@ import { LyricsDisplay } from "@/components/playback/lyrics-display";
 import { PauseOverlay } from "@/components/playback/pause-overlay";
 import { PitchGraph } from "@/components/playback/pitch-graph";
 import { PlaybackHud } from "@/components/playback/playback-hud";
+import { PlaybackTransportControls } from "@/components/playback/playback-transport-controls";
 import { PracticeOverlay } from "@/components/playback/practice-overlay";
 import { UsdxTimingPanel } from "@/components/playback/usdx-timing-panel";
 import {
@@ -22,6 +23,12 @@ import {
   usePlaybackTransportState,
 } from "@/contexts/playback";
 import { usePlaybackInput, usePlaybackResult, usePracticeLoop } from "@/hooks/playback";
+import {
+  clampPlaybackTime,
+  isSeekOutsideLoop,
+  skipPlaybackTime,
+  stopPlaybackTarget,
+} from "@/lib/playback/transport-controls";
 import type { AppConfig } from "@/types/AppConfig";
 import type { Song } from "@/types/Song";
 import { useCallback, useState } from "react";
@@ -37,14 +44,17 @@ interface PlaybackLayoutProps {
 }
 
 function PlaybackLayout({ song, config }: PlaybackLayoutProps) {
-  const { isReady, paused } = usePlaybackTransportState();
-  const { handleContinue, handleExit } = usePlaybackTransportActions();
+  const { isReady, paused, duration } = usePlaybackTransportState();
+  const { getCurrentTime, handleContinue, handleExit, seek, stopAt, togglePlayback } =
+    usePlaybackTransportActions();
   const { segments } = usePlaybackTranscriptState();
   const { series } = usePlaybackMicState();
   const [practiceMode, setPracticeMode] = useState(false);
   const [usdxTimingOpen, setUsdxTimingOpen] = useState(false);
   const isUsdx = song.transcript_source === "Usdx" || song.usdx != null;
   const practiceLoop = usePracticeLoop({ enabled: practiceMode, segments, series });
+  const activeLoop = practiceLoop.activeLoop;
+  const clearPracticeLoop = practiceLoop.handleClearLoop;
 
   const handleTogglePracticeMode = useCallback(() => {
     setPracticeMode((prev) => !prev);
@@ -59,7 +69,40 @@ function PlaybackLayout({ song, config }: PlaybackLayoutProps) {
     setUsdxTimingOpen(false);
   }, []);
 
+  const handleSeekRequested = useCallback(
+    (time: number) => {
+      const target = clampPlaybackTime(time, duration);
+
+      // User-initiated seeks outside an active loop mean "leave this loop" and
+      // move normally. Retry-loop and automatic loop jumps bypass this handler.
+      if (isSeekOutsideLoop(target, activeLoop)) {
+        clearPracticeLoop();
+      }
+
+      seek(target);
+    },
+    [activeLoop, clearPracticeLoop, duration, seek],
+  );
+
+  const handleSkipRequested = useCallback(
+    (deltaSeconds: number) => {
+      handleSeekRequested(skipPlaybackTime(getCurrentTime(), deltaSeconds, duration));
+    },
+    [duration, getCurrentTime, handleSeekRequested],
+  );
+
+  const handleRestartRequested = useCallback(() => {
+    handleSeekRequested(0);
+  }, [handleSeekRequested]);
+
+  const handleStopRequested = useCallback(() => {
+    stopAt(stopPlaybackTarget(activeLoop, duration));
+  }, [activeLoop, duration, stopAt]);
+
   usePlaybackInput(config, {
+    onTogglePlayback: togglePlayback,
+    onSkipPlayback: handleSkipRequested,
+    onRestartPlayback: handleRestartRequested,
     onTogglePracticeMode: handleTogglePracticeMode,
     onToggleUsdxTiming: isUsdx ? handleToggleUsdxTiming : undefined,
     onSetLoopStart: practiceMode ? practiceLoop.handleSetLoopStart : undefined,
@@ -97,8 +140,16 @@ function PlaybackLayout({ song, config }: PlaybackLayoutProps) {
               fileHash={song.file_hash}
               open={usdxTimingOpen}
               onClose={handleCloseUsdxTiming}
+              onSeekRelative={handleSkipRequested}
             />
           )}
+          <PlaybackTransportControls
+            activeLoop={activeLoop}
+            onSeekRequested={handleSeekRequested}
+            onSkipRequested={handleSkipRequested}
+            onStopRequested={handleStopRequested}
+            onRestartRequested={handleRestartRequested}
+          />
         </>
       )}
 

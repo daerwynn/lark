@@ -40,8 +40,11 @@ export interface PlaybackTransportActions {
   setGuideVolume: (volume: number) => void;
   getVocalsBuffer: AudioPlayer["getVocalsBuffer"];
   getAudioContext: AudioPlayer["getAudioContext"];
+  playAudio: () => void;
   /** Raw audio-engine pause; does NOT raise the `paused` UI flag. */
   pauseAudio: () => void;
+  togglePlayback: () => void;
+  stopAt: (time: number) => void;
   handlePause: () => void;
   handleContinue: () => void;
   handleExit: () => void;
@@ -117,6 +120,51 @@ export function PlaybackTransportProvider({
     setPaused(true);
   }, [audio.pause]);
 
+  const playAudio = useCallback(() => {
+    setPaused(false);
+    if (audio.isFinished || (audio.duration > 0 && audio.getCurrentTime() >= audio.duration)) {
+      audio.seek(0);
+    }
+    audio.resume();
+  }, [audio.duration, audio.getCurrentTime, audio.isFinished, audio.resume, audio.seek]);
+
+  const pauseAudio = useCallback(() => {
+    audio.pause();
+  }, [audio.pause]);
+
+  const togglePlayback = useCallback(() => {
+    if (audio.isPlaying) {
+      audio.pause();
+      setPaused(false);
+      return;
+    }
+
+    setPaused(false);
+    if (audio.isFinished || (audio.duration > 0 && audio.getCurrentTime() >= audio.duration)) {
+      audio.seek(0);
+    }
+    audio.resume();
+  }, [
+    audio.duration,
+    audio.getCurrentTime,
+    audio.isFinished,
+    audio.isPlaying,
+    audio.pause,
+    audio.resume,
+    audio.seek,
+  ]);
+
+  const stopAt = useCallback(
+    (time: number) => {
+      // Stop parks playback without raising PauseOverlay; phrase loops stop at
+      // their loop start so retrying the same range stays predictable.
+      audio.pause();
+      audio.seek(time);
+      setPaused(false);
+    },
+    [audio.pause, audio.seek],
+  );
+
   const handleContinue = useCallback(() => {
     setPaused(false);
     audio.resume();
@@ -156,7 +204,10 @@ export function PlaybackTransportProvider({
       setGuideVolume: audio.setGuideVolume,
       getVocalsBuffer: audio.getVocalsBuffer,
       getAudioContext: audio.getAudioContext,
-      pauseAudio: audio.pause,
+      playAudio,
+      pauseAudio,
+      togglePlayback,
+      stopAt,
       handlePause,
       handleContinue,
       handleExit,
@@ -168,7 +219,10 @@ export function PlaybackTransportProvider({
       audio.setGuideVolume,
       audio.getVocalsBuffer,
       audio.getAudioContext,
-      audio.pause,
+      playAudio,
+      pauseAudio,
+      togglePlayback,
+      stopAt,
       handlePause,
       handleContinue,
       handleExit,

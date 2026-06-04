@@ -241,7 +241,7 @@ function LyricsDisplayImpl({ segments }: LyricsDisplayProps) {
   const nextHasReading = nextSeg?.words.some((w) => w.reading) ?? false;
 
   return (
-    <div className="pointer-events-none absolute inset-x-0 bottom-[60px] z-10 flex flex-col items-center gap-2 px-10">
+    <div className="pointer-events-none absolute inset-x-0 bottom-40 z-10 flex flex-col items-center gap-2 px-10">
       <div
         ref={containerRef}
         className="relative max-w-full rounded-lg bg-black/40 px-5 py-2.5"

@@ -10,6 +10,7 @@
 
 import type { PlaybackAdapter } from "@/bridge/playback";
 import { playbackAdapter } from "@/bridge/playback";
+import { clampPlaybackTime } from "@/lib/playback/transport-controls";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 export type TimeSubscriber = (time: number) => void;
@@ -121,7 +122,7 @@ export function useAudioPlayer(
 
       stopSources();
 
-      const clamped = Math.max(0, Math.min(offset, instBuf.duration));
+      const clamped = clampPlaybackTime(offset, instBuf.duration);
 
       const instSrc = ctx.createBufferSource();
       instSrc.buffer = instBuf;
@@ -294,21 +295,22 @@ export function useAudioPlayer(
   const seek = useCallback(
     (time: number) => {
       const wasPlaying = playingRef.current;
+      const clamped = clampPlaybackTime(time, instrumentalBufRef.current?.duration ?? duration);
 
       stopSources();
 
-      startOffsetRef.current = time;
-      currentTimeRef.current = time;
+      startOffsetRef.current = clamped;
+      currentTimeRef.current = clamped;
 
       if (wasPlaying) {
-        startSources(time);
+        startSources(clamped);
         setIsPlaying(true);
       }
 
-      notifySubscribers(time);
+      notifySubscribers(clamped);
       setIsFinished(false);
     },
-    [stopSources, startSources, notifySubscribers],
+    [duration, stopSources, startSources, notifySubscribers],
   );
 
   const setGuideVolume = useCallback((v: number) => {

@@ -415,7 +415,7 @@ function PracticeOverlayImpl({ segments, series, loop }: PracticeOverlayProps) {
   const canClear = loop.activeLoop != null || loop.manualStart != null || loop.manualEnd != null;
 
   return (
-    <div className="pointer-events-none absolute inset-0 z-10 flex flex-col bg-black/62 px-8 pt-24 pb-8 text-white">
+    <div className="pointer-events-none absolute inset-0 z-10 flex flex-col bg-black/62 px-8 pt-24 pb-40 text-white">
       <div className="flex shrink-0 items-start justify-between gap-5">
         <div>
           <p className="text-sm tracking-[0.18em] text-white/55 uppercase">Practice Mode</p>

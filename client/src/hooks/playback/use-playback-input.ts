@@ -12,6 +12,9 @@ import type { AppConfig } from "@/types/AppConfig";
 import { useCallback, useEffect, useRef } from "react";
 
 export interface PlaybackInputHandlers {
+  onTogglePlayback?: () => void;
+  onSkipPlayback?: (deltaSeconds: number) => void;
+  onRestartPlayback?: () => void;
   onTogglePracticeMode?: () => void;
   onToggleUsdxTiming?: () => void;
   onSetLoopStart?: () => void;
@@ -41,6 +44,9 @@ export function usePlaybackInput(config: AppConfig | null, handlers: PlaybackInp
   const { handleSkipIntro, handleSkipOutro } = usePlaybackTranscriptActions();
   const { handleToggleMic, handleCycleMic, handleToggleMicMonitor } = usePlaybackMicActions();
   const {
+    onTogglePlayback,
+    onSkipPlayback,
+    onRestartPlayback,
     onTogglePracticeMode,
     onToggleUsdxTiming,
     onSetLoopStart,
@@ -64,6 +70,16 @@ export function usePlaybackInput(config: AppConfig | null, handlers: PlaybackInp
           } else {
             handlePause();
           }
+          return;
+        }
+
+        if (action.left) {
+          onSkipPlayback?.(-5);
+          return;
+        }
+
+        if (action.right) {
+          onSkipPlayback?.(5);
           return;
         }
 
@@ -91,12 +107,13 @@ export function usePlaybackInput(config: AppConfig | null, handlers: PlaybackInp
         introSkipLeadSec,
         handleSkipIntro,
         handleSkipOutro,
+        onSkipPlayback,
         onRetryLoop,
       ],
     ),
   );
 
-  // Keyboard-only shortcuts (G, T, F, M, N, R, P, U, loop keys, +/-, Space)
+  // Keyboard-only shortcuts (Space, Home, G, T, F, M, N, R, P, U, loop keys, +/-)
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (isEditableTarget(e.target)) {
@@ -105,11 +122,13 @@ export function usePlaybackInput(config: AppConfig | null, handlers: PlaybackInp
 
       if (e.key === " ") {
         e.preventDefault();
-        if (paused) {
-          handleContinue();
-        } else {
-          handlePause();
-        }
+        onTogglePlayback?.();
+        return;
+      }
+
+      if (e.key === "Home") {
+        e.preventDefault();
+        onRestartPlayback?.();
         return;
       }
 
@@ -210,8 +229,8 @@ export function usePlaybackInput(config: AppConfig | null, handlers: PlaybackInp
     cycleTheme,
     cycleFlavor,
     persistConfig,
-    handlePause,
-    handleContinue,
+    onTogglePlayback,
+    onRestartPlayback,
     onTogglePracticeMode,
     onToggleUsdxTiming,
     onSetLoopStart,

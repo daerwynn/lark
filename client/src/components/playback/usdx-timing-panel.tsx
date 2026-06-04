@@ -20,12 +20,14 @@ interface UsdxTimingPanelProps {
   fileHash: string;
   open: boolean;
   onClose: () => void;
+  onSeekRelative?: (deltaSeconds: number) => void;
 }
 
 type AnchorSlot = "early" | "late";
 
 const OFFSET_STEPS = [-1000, -100, -10, 10, 100, 1000];
 const BPM_STEPS = [-1, -0.1, 0.1, 1];
+const FINE_SEEK_STEPS = [-1, -0.1, 0.1, 1];
 
 function formatSeconds(value: number | null | undefined): string {
   if (value == null || !Number.isFinite(value)) return "--";
@@ -40,6 +42,11 @@ function formatMs(value: number | null | undefined): string {
 function formatBpm(value: number | null | undefined): string {
   if (value == null || !Number.isFinite(value)) return "--";
   return value.toFixed(3);
+}
+
+function formatFineSeekStep(value: number): string {
+  const sign = value > 0 ? "+" : "-";
+  return `${sign}${Math.abs(value) < 1 ? "100ms" : "1s"}`;
 }
 
 function activeSegmentIndex(segments: Segment[], time: number): number {
@@ -111,7 +118,7 @@ function ActionButton({
   );
 }
 
-export function UsdxTimingPanel({ fileHash, open, onClose }: UsdxTimingPanelProps) {
+export function UsdxTimingPanel({ fileHash, open, onClose, onSeekRelative }: UsdxTimingPanelProps) {
   const { segments } = usePlaybackTranscriptState();
   const { reloadTranscript } = usePlaybackTranscriptActions();
   const { getCurrentTime, subscribe } = usePlaybackTransportActions();
@@ -489,9 +496,24 @@ export function UsdxTimingPanel({ fileHash, open, onClose }: UsdxTimingPanelProp
         </section>
 
         <div className="rounded-sm border border-white/12 bg-white/6 px-3 py-2">
-          <p className="text-base text-white/65">
-            Current audio time: <span className="font-semibold">{formatSeconds(currentTime)}</span>
-          </p>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <p className="text-base text-white/65">
+              Current audio time:{" "}
+              <span className="font-semibold">{formatSeconds(currentTime)}</span>
+            </p>
+            {onSeekRelative && (
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-sm tracking-[0.14em] text-white/48 uppercase">Fine seek</span>
+                {FINE_SEEK_STEPS.map((step) => (
+                  <StepButton
+                    key={step}
+                    label={formatFineSeekStep(step)}
+                    onClick={() => onSeekRelative(step)}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
           {info && (
             <p className="mt-1 break-all text-sm text-white/45">TXT path: {info.txt_path}</p>
           )}
