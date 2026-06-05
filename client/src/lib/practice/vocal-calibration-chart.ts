@@ -1,4 +1,4 @@
-import { pitchSimilarity, type PitchSeries } from "@/lib/pitch/state";
+import { freqToSemitone, pitchSimilarity, type PitchSeries } from "@/lib/pitch/state";
 import type { Segment, Word } from "@/types/Transcript";
 
 import {
@@ -49,6 +49,11 @@ export function calibrationPitchSeriesFromFrames(
   const refPitches: (number | null)[] = [];
   const userPitches: (number | null)[] = [];
   const rawUserPitches: (number | null)[] = [];
+  const rawMicHz: (number | null)[] = [];
+  const rawMicMidi: (number | null)[] = [];
+  const rawMicClarity: (number | null)[] = [];
+  const rawMicRms: (number | null)[] = [];
+  const rawMicVoiced: boolean[] = [];
   const traceBreaks: boolean[] = [];
   const micFrameIds: (number | null)[] = [];
   const similarities: number[] = [];
@@ -62,11 +67,29 @@ export function calibrationPitchSeriesFromFrames(
     refPitches.push(refHz);
     userPitches.push(userHz);
     rawUserPitches.push(userHz);
+    rawMicHz.push(userHz);
+    rawMicMidi.push(userHz != null ? freqToSemitone(userHz) : null);
+    rawMicClarity.push(frame.clarity);
+    rawMicRms.push(frame.rms);
+    rawMicVoiced.push(userHz != null);
     traceBreaks.push(false);
     micFrameIds.push(null);
     similarities.push(refHz != null && userHz != null ? pitchSimilarity(refHz, userHz) : 0);
     times.push(frame.timeSec);
   }
 
-  return { refPitches, userPitches, rawUserPitches, traceBreaks, micFrameIds, similarities, times };
+  return {
+    refPitches,
+    userPitches,
+    rawUserPitches,
+    rawMicHz,
+    rawMicMidi,
+    rawMicClarity,
+    rawMicRms,
+    rawMicVoiced,
+    traceBreaks,
+    micFrameIds,
+    similarities,
+    times,
+  };
 }

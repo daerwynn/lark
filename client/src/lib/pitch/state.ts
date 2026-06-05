@@ -12,6 +12,14 @@ export interface PitchSeries {
   refPitches: (number | null)[];
   userPitches: (number | null)[];
   rawUserPitches?: (number | null)[];
+  rawMicHz?: (number | null)[];
+  rawMicMidi?: (number | null)[];
+  rawMicClarity?: (number | null)[];
+  rawMicRms?: (number | null)[];
+  rawMicVoiced?: boolean[];
+  scoringExpectedHz?: (number | null)[];
+  scoringMicHz?: (number | null)[];
+  scoringSimilarities?: number[];
   micFrameIds?: (number | null)[];
   traceBreaks?: boolean[];
   similarities: number[];
@@ -58,6 +66,14 @@ export class PitchStateBuffer {
   refPitches: (number | null)[] = [];
   userPitches: (number | null)[] = [];
   rawUserPitches: (number | null)[] = [];
+  rawMicHz: (number | null)[] = [];
+  rawMicMidi: (number | null)[] = [];
+  rawMicClarity: (number | null)[] = [];
+  rawMicRms: (number | null)[] = [];
+  rawMicVoiced: boolean[] = [];
+  scoringExpectedHz: (number | null)[] = [];
+  scoringMicHz: (number | null)[] = [];
+  scoringSimilarities: number[] = [];
   micFrameIds: (number | null)[] = [];
   traceBreaks: boolean[] = [];
   similarities: number[] = [];
@@ -74,6 +90,13 @@ export class PitchStateBuffer {
     time: number,
     rawUserPitch: number | null = userPitch,
     micFrameId: number | null = null,
+    rawMic: {
+      hz?: number | null;
+      midi?: number | null;
+      clarity?: number | null;
+      rms?: number | null;
+      voiced?: boolean;
+    } = {},
   ): void {
     this.smoothedRef = ema(this.smoothedRef, refPitch);
     this.smoothedUser = ema(this.smoothedUser, userPitch);
@@ -87,6 +110,14 @@ export class PitchStateBuffer {
       this.refPitches.shift();
       this.userPitches.shift();
       this.rawUserPitches.shift();
+      this.rawMicHz.shift();
+      this.rawMicMidi.shift();
+      this.rawMicClarity.shift();
+      this.rawMicRms.shift();
+      this.rawMicVoiced.shift();
+      this.scoringExpectedHz.shift();
+      this.scoringMicHz.shift();
+      this.scoringSimilarities.shift();
       this.micFrameIds.shift();
       this.traceBreaks.shift();
       this.similarities.shift();
@@ -95,6 +126,14 @@ export class PitchStateBuffer {
     this.refPitches.push(this.smoothedRef);
     this.userPitches.push(this.smoothedUser);
     this.rawUserPitches.push(rawUserPitch);
+    this.rawMicHz.push(rawMic.hz ?? null);
+    this.rawMicMidi.push(rawMic.midi ?? null);
+    this.rawMicClarity.push(rawMic.clarity ?? null);
+    this.rawMicRms.push(rawMic.rms ?? null);
+    this.rawMicVoiced.push(rawMic.voiced ?? rawMic.hz != null);
+    this.scoringExpectedHz.push(refPitch);
+    this.scoringMicHz.push(userPitch);
+    this.scoringSimilarities.push(similarity);
     this.micFrameIds.push(micFrameId);
     this.traceBreaks.push(this.pendingTraceBreak);
     this.pendingTraceBreak = false;
@@ -112,6 +151,14 @@ export class PitchStateBuffer {
       refPitches: [...this.refPitches],
       userPitches: [...this.userPitches],
       rawUserPitches: [...this.rawUserPitches],
+      rawMicHz: [...this.rawMicHz],
+      rawMicMidi: [...this.rawMicMidi],
+      rawMicClarity: [...this.rawMicClarity],
+      rawMicRms: [...this.rawMicRms],
+      rawMicVoiced: [...this.rawMicVoiced],
+      scoringExpectedHz: [...this.scoringExpectedHz],
+      scoringMicHz: [...this.scoringMicHz],
+      scoringSimilarities: [...this.scoringSimilarities],
       micFrameIds: [...this.micFrameIds],
       traceBreaks: [...this.traceBreaks],
       similarities: [...this.similarities],
@@ -123,6 +170,14 @@ export class PitchStateBuffer {
     this.refPitches = [];
     this.userPitches = [];
     this.rawUserPitches = [];
+    this.rawMicHz = [];
+    this.rawMicMidi = [];
+    this.rawMicClarity = [];
+    this.rawMicRms = [];
+    this.rawMicVoiced = [];
+    this.scoringExpectedHz = [];
+    this.scoringMicHz = [];
+    this.scoringSimilarities = [];
     this.micFrameIds = [];
     this.traceBreaks = [];
     this.similarities = [];

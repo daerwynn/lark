@@ -1,8 +1,11 @@
-import type { TimedPitchDetectionFrame } from "./detect";
-
 export const MAX_MIC_FRAME_AGE_MS = 500;
 
 export type MicFrameDropReason = "no-frame" | "already-processed" | "stale";
+
+export interface MicFrameTimingSource {
+  id: number;
+  detectedAtMs: number;
+}
 
 export interface MicFrameProcessDecision {
   shouldProcess: boolean;
@@ -46,7 +49,7 @@ export function micFrameProcessDecision({
   nowMs,
   maxAgeMs = MAX_MIC_FRAME_AGE_MS,
 }: {
-  frame: TimedPitchDetectionFrame | null;
+  frame: MicFrameTimingSource | null;
   lastProcessedFrameId: number | null;
   nowMs: number;
   maxAgeMs?: number;

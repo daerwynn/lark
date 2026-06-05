@@ -1,5 +1,10 @@
 import type { PitchSeries } from "@/lib/pitch/state";
 import { freqToSemitone, snapToRefOctave } from "@/lib/pitch/state";
+import {
+  buildLiveVoiceTracePoint,
+  computeRollingBaselineOctaveOffset,
+  type LiveVoiceTracePoint,
+} from "@/lib/pitch/live-voice-trace";
 import type { Segment, Word } from "@/types/Transcript";
 
 export const DEFAULT_PRACTICE_RANGE = 24;
@@ -62,13 +67,16 @@ export interface PracticeLaneModel {
   referenceTrace: PracticeTracePoint[];
   rawUserTrace: PracticeTracePoint[];
   userTrace: PracticeTracePoint[];
+  liveVoiceTrace: LiveVoiceTracePoint[];
   matchQuality: number | null;
   latestUserPitch: PracticeTracePoint | null;
+  latestLiveVoicePoint: LiveVoiceTracePoint | null;
   vertical: PracticeVerticalRange;
   missingChartData: PracticeMissingChartData;
   pitchCalibration: PracticePitchCalibration;
   currentExpectedNote: PracticeExpectedNote | null;
   latestCentsDifference: number | null;
+  latestLiveCentsDifference: number | null;
 }
 
 export interface BuildPracticeLaneArgs {
@@ -194,6 +202,14 @@ export function expectedNoteAtTime(
 
 function chartPitchAtTime(notes: PracticeExpectedNote[], time: number): number | null {
   return expectedNoteAtTime(notes, time)?.pitch ?? null;
+}
+
+function expectedMidiForNote(
+  note: PracticeExpectedNote | null,
+  calibration: PracticePitchCalibration,
+): number | null {
+  if (!note) return null;
+  return calibration.midiOffset == null ? note.pitch : note.pitch + calibration.midiOffset;
 }
 
 function median(values: number[]): number | null {
@@ -351,6 +367,66 @@ export function buildRawUserTrace(
   );
 }
 
+export function buildLiveVoiceTrace(
+  series: PitchSeries,
+  chartNotes: PracticeExpectedNote[],
+  calibration: PracticePitchCalibration = computeChartPitchCalibration(series, chartNotes),
+): LiveVoiceTracePoint[] {
+  const points: LiveVoiceTracePoint[] = [];
+  let pendingBreak = false;
+  let baselineOctaveOffset: number | null = null;
+  const hasChartNotes = chartNotes.length > 0;
+
+  for (let index = 0; index < series.times.length; index++) {
+    pendingBreak ||= series.traceBreaks?.[index] ?? false;
+    const rawHz = series.rawMicHz?.[index] ?? null;
+    const voiced = series.rawMicVoiced?.[index] ?? rawHz != null;
+    if (!voiced || rawHz == null) {
+      pendingBreak = true;
+      continue;
+    }
+
+    const time = series.times[index];
+    const note = expectedNoteAtTime(chartNotes, time, 0);
+    const refHz = series.refPitches[index];
+    const refMidi = isFiniteNumber(refHz) && refHz > 0 ? freqToSemitone(refHz) : null;
+    if (!note && (hasChartNotes || refMidi == null)) {
+      pendingBreak = true;
+      continue;
+    }
+
+    const expectedMidi = note ? expectedMidiForNote(note, calibration) : refMidi;
+    const point = buildLiveVoiceTracePoint({
+      time,
+      rawHz,
+      expectedMidi,
+      expectedLaneMidi: note?.pitch ?? refMidi,
+      baselineOctaveOffset,
+      clarity: series.rawMicClarity?.[index] ?? null,
+      rms: series.rawMicRms?.[index] ?? null,
+      traceBreak: pendingBreak,
+    });
+    if (!point) {
+      pendingBreak = true;
+      continue;
+    }
+
+    points.push(point);
+    baselineOctaveOffset = computeRollingBaselineOctaveOffset(points, baselineOctaveOffset);
+    const updatedPoint = points[points.length - 1];
+    if (updatedPoint && baselineOctaveOffset != null) {
+      updatedPoint.baselineOctaveOffset = baselineOctaveOffset;
+      updatedPoint.baselineRelativeOctaveOffset =
+        updatedPoint.absoluteOctaveOffsetFromExpected == null
+          ? null
+          : updatedPoint.absoluteOctaveOffsetFromExpected - baselineOctaveOffset;
+    }
+    pendingBreak = false;
+  }
+
+  return points;
+}
+
 export function shouldConnectTracePoints(
   previous: PracticeTracePoint,
   point: PracticeTracePoint,
@@ -412,7 +488,8 @@ function valuesInWindow<T extends { time?: number; start?: number; end?: number;
 function computeVerticalRange(
   expectedNotes: PracticeExpectedNote[],
   referenceTrace: PracticeTracePoint[],
-  userTrace: PracticeTracePoint[],
+  liveVoiceTrace: LiveVoiceTracePoint[],
+  fallbackUserTrace: PracticeTracePoint[],
   currentTime: number,
   range: number,
   windowBefore: number,
@@ -421,7 +498,9 @@ function computeVerticalRange(
   const windowStart = currentTime - windowBefore;
   const windowEnd = currentTime + windowAfter;
   const expectedValues = valuesInWindow(expectedNotes, windowStart, windowEnd);
-  const traceSource = expectedValues.length > 0 ? userTrace : [...referenceTrace, ...userTrace];
+  const visibleUserTrace = liveVoiceTrace.length > 0 ? liveVoiceTrace : fallbackUserTrace;
+  const traceSource =
+    expectedValues.length > 0 ? visibleUserTrace : [...referenceTrace, ...visibleUserTrace];
   const traceValues = valuesInWindow(traceSource, windowStart, windowEnd);
   const values = expectedValues.length > 0 ? [...expectedValues, ...traceValues] : traceValues;
   const center = average(values) ?? 60;
@@ -482,6 +561,14 @@ export function filterPitchSeriesSince(series: PitchSeries, startTime: number): 
   const refPitches: (number | null)[] = [];
   const userPitches: (number | null)[] = [];
   const rawUserPitches: (number | null)[] = [];
+  const rawMicHz: (number | null)[] = [];
+  const rawMicMidi: (number | null)[] = [];
+  const rawMicClarity: (number | null)[] = [];
+  const rawMicRms: (number | null)[] = [];
+  const rawMicVoiced: boolean[] = [];
+  const scoringExpectedHz: (number | null)[] = [];
+  const scoringMicHz: (number | null)[] = [];
+  const scoringSimilarities: number[] = [];
   const micFrameIds: (number | null)[] = [];
   const traceBreaks: boolean[] = [];
   const similarities: number[] = [];
@@ -492,6 +579,14 @@ export function filterPitchSeriesSince(series: PitchSeries, startTime: number): 
     refPitches.push(series.refPitches[i] ?? null);
     userPitches.push(series.userPitches[i] ?? null);
     rawUserPitches.push(series.rawUserPitches?.[i] ?? null);
+    rawMicHz.push(series.rawMicHz?.[i] ?? null);
+    rawMicMidi.push(series.rawMicMidi?.[i] ?? null);
+    rawMicClarity.push(series.rawMicClarity?.[i] ?? null);
+    rawMicRms.push(series.rawMicRms?.[i] ?? null);
+    rawMicVoiced.push(series.rawMicVoiced?.[i] ?? series.rawMicHz?.[i] != null);
+    scoringExpectedHz.push(series.scoringExpectedHz?.[i] ?? null);
+    scoringMicHz.push(series.scoringMicHz?.[i] ?? null);
+    scoringSimilarities.push(series.scoringSimilarities?.[i] ?? series.similarities[i] ?? 0);
     micFrameIds.push(series.micFrameIds?.[i] ?? null);
     traceBreaks.push(series.traceBreaks?.[i] ?? false);
     similarities.push(series.similarities[i] ?? 0);
@@ -502,6 +597,14 @@ export function filterPitchSeriesSince(series: PitchSeries, startTime: number): 
     refPitches,
     userPitches,
     rawUserPitches,
+    rawMicHz,
+    rawMicMidi,
+    rawMicClarity,
+    rawMicRms,
+    rawMicVoiced,
+    scoringExpectedHz,
+    scoringMicHz,
+    scoringSimilarities,
     micFrameIds,
     traceBreaks,
     similarities,
@@ -543,6 +646,7 @@ export function buildPracticeLaneModel({
   const referenceTrace = buildReferenceTrace(series, chartNotes, pitchCalibration);
   const rawUserTrace = buildRawUserTrace(series, chartNotes, pitchCalibration);
   const userTrace = buildUserTrace(series, chartNotes, pitchCalibration);
+  const liveVoiceTrace = buildLiveVoiceTrace(series, chartNotes, pitchCalibration);
   const expectedNotes = hasChartNotes ? chartNotes : notesFromReferenceTrace(referenceTrace);
   const expectedSource: ExpectedPitchSource = hasChartNotes
     ? "chart"
@@ -550,6 +654,8 @@ export function buildPracticeLaneModel({
       ? "reference"
       : "none";
   const latestUserPitch = userTrace.length > 0 ? userTrace[userTrace.length - 1] : null;
+  const latestLiveVoicePoint =
+    liveVoiceTrace.length > 0 ? liveVoiceTrace[liveVoiceTrace.length - 1] : null;
   const expectedForLatestUser = latestUserPitch
     ? expectedNoteAtTime(expectedNotes, latestUserPitch.time)
     : null;
@@ -562,11 +668,14 @@ export function buildPracticeLaneModel({
     referenceTrace,
     rawUserTrace,
     userTrace,
+    liveVoiceTrace,
     matchQuality: computePhraseMatchQuality(series, currentSegment),
     latestUserPitch,
+    latestLiveVoicePoint,
     vertical: computeVerticalRange(
       expectedNotes,
       referenceTrace,
+      liveVoiceTrace,
       userTrace,
       currentTime,
       range,
@@ -585,5 +694,6 @@ export function buildPracticeLaneModel({
       expectedForLatestUser?.pitch,
       latestUserPitch?.pitch,
     ),
+    latestLiveCentsDifference: latestLiveVoicePoint?.centsFromExpected ?? null,
   };
 }

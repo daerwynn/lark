@@ -3,6 +3,11 @@ import type { PracticeLoopControls } from "@/hooks/playback";
 import type { PitchScoringDebug } from "@/hooks/use-pitch-scoring";
 import { shortcutHint, type PlaybackShortcutBindings } from "@/lib/playback/keybindings";
 import { formatPlaybackTime } from "@/lib/playback/transport-controls";
+import {
+  shouldConnectLiveVoiceTracePoints,
+  styleLiveVoiceTracePoint,
+  type LiveVoiceTracePoint,
+} from "@/lib/pitch/live-voice-trace";
 import type { PitchSeries } from "@/lib/pitch/state";
 import type { PracticeCountInSec, PracticeLoopRange } from "@/lib/practice/practice-loop";
 import {
@@ -318,21 +323,55 @@ function drawTrace(
   ctx.restore();
 }
 
-function drawLatestMarker(
+function drawLiveVoiceTrace(
   ctx: CanvasRenderingContext2D,
   size: Size,
   model: PracticeLaneModel,
   currentTime: number,
+  points: LiveVoiceTracePoint[],
+  settings: PracticeSettings,
 ): void {
-  const point = model.latestUserPitch;
+  ctx.save();
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  ctx.lineWidth = 10;
+
+  for (let i = 1; i < points.length; i++) {
+    const prev = points[i - 1];
+    const point = points[i];
+    if (!shouldConnectLiveVoiceTracePoints(prev, point)) continue;
+
+    const x1 = timeToX(prev.time, currentTime, size.width);
+    const x2 = timeToX(point.time, currentTime, size.width);
+    if ((x1 < 0 && x2 < 0) || (x1 > size.width && x2 > size.width)) continue;
+
+    ctx.strokeStyle = styleLiveVoiceTracePoint(point, settings.pitchFeedback).stroke;
+    ctx.beginPath();
+    ctx.moveTo(x1, pitchToY(prev.pitch, model, size.height));
+    ctx.lineTo(x2, pitchToY(point.pitch, model, size.height));
+    ctx.stroke();
+  }
+
+  ctx.restore();
+}
+
+function drawLatestLiveVoiceMarker(
+  ctx: CanvasRenderingContext2D,
+  size: Size,
+  model: PracticeLaneModel,
+  currentTime: number,
+  settings: PracticeSettings,
+): void {
+  const point = model.latestLiveVoicePoint;
   if (!point) return;
 
   const x = timeToX(point.time, currentTime, size.width);
   if (x < 0 || x > size.width) return;
 
   const y = pitchToY(point.pitch, model, size.height);
+  const style = styleLiveVoiceTracePoint(point, settings.pitchFeedback);
   ctx.save();
-  ctx.fillStyle = lineColor(point.similarity);
+  ctx.fillStyle = style.marker;
   ctx.strokeStyle = "rgba(255,255,255,0.95)";
   ctx.lineWidth = 4;
   ctx.beginPath();
@@ -350,6 +389,7 @@ function drawLane(
   loopRange: PracticeLoopRange | null,
   feedbackLevel: PitchFeedbackLevel | null,
   showRawTrace: boolean,
+  settings: PracticeSettings,
 ): void {
   const ctx = setupCanvas(canvas, size);
   if (!ctx) return;
@@ -376,11 +416,8 @@ function drawLane(
     });
   }
 
-  drawTrace(ctx, size, model, currentTime, model.userTrace, {
-    lineWidth: 10,
-    bySimilarity: true,
-  });
-  drawLatestMarker(ctx, size, model, currentTime);
+  drawLiveVoiceTrace(ctx, size, model, currentTime, model.liveVoiceTrace, settings);
+  drawLatestLiveVoiceMarker(ctx, size, model, currentTime, settings);
 }
 
 function SourceLabel({ source }: { source: PracticeLaneModel["expectedSource"] }) {
@@ -517,15 +554,24 @@ function PracticeOverlayImpl({
     [segments, visibleSeries, currentTime, range, lyricDisplayOffsetSec, lyricLeadSec],
   );
   const feedbackLevel = pitchFeedbackLevelFromCents(
-    model.latestCentsDifference,
+    model.latestLiveCentsDifference,
     settings.pitchFeedback,
   );
 
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    drawLane(canvas, lane.size, model, currentTime, loop.activeLoop, feedbackLevel, debugEnabled);
-  }, [lane.size, model, currentTime, loop.activeLoop, feedbackLevel, debugEnabled]);
+    drawLane(
+      canvas,
+      lane.size,
+      model,
+      currentTime,
+      loop.activeLoop,
+      feedbackLevel,
+      debugEnabled,
+      settings,
+    );
+  }, [lane.size, model, currentTime, loop.activeLoop, feedbackLevel, debugEnabled, settings]);
 
   const currentPhraseVisible =
     model.currentSegment != null &&
@@ -666,8 +712,13 @@ function PracticeOverlayImpl({
         <div className="pointer-events-auto absolute bottom-28 left-8 z-20 max-w-xl rounded-sm border border-white/18 bg-black/82 p-3 font-mono text-xs leading-relaxed text-white/75">
           <div>time {formatPlaybackTime(currentTime)}</div>
           <div>
-            mic {model.latestUserPitch ? formatPlaybackTime(model.latestUserPitch.time) : "--"} /{" "}
-            {model.latestUserPitch ? model.latestUserPitch.pitch.toFixed(2) : "--"} st
+            live{" "}
+            {model.latestLiveVoicePoint
+              ? formatPlaybackTime(model.latestLiveVoicePoint.time)
+              : "--"}{" "}
+            /{" "}
+            {model.latestLiveVoicePoint ? model.latestLiveVoicePoint.displayMidi.toFixed(2) : "--"}{" "}
+            st
           </div>
           <div>
             note{" "}
@@ -678,7 +729,22 @@ function PracticeOverlayImpl({
               : "--"}
           </div>
           <div>
-            cents {model.latestCentsDifference == null ? "--" : model.latestCentsDifference}
+            cents {model.latestLiveCentsDifference == null ? "--" : model.latestLiveCentsDifference}
+          </div>
+          <div>
+            display{" "}
+            {model.latestLiveVoicePoint
+              ? `${model.latestLiveVoicePoint.displayMidi.toFixed(2)} st`
+              : "--"}{" "}
+            expected{" "}
+            {model.latestLiveVoicePoint?.expectedMidi == null
+              ? "--"
+              : `${model.latestLiveVoicePoint.expectedMidi.toFixed(2)} st`}
+          </div>
+          <div>
+            octave abs {model.latestLiveVoicePoint?.absoluteOctaveOffsetFromExpected ?? "--"}{" "}
+            baseline {model.latestLiveVoicePoint?.baselineOctaveOffset ?? "--"} relative{" "}
+            {model.latestLiveVoicePoint?.baselineRelativeOctaveOffset ?? "--"}
           </div>
           <div>
             pitch offset{" "}
@@ -718,6 +784,14 @@ function PracticeOverlayImpl({
           <div>
             displayed={String(micDebug.displayed)} scored={String(micDebug.scored)} drop=
             {micDebug.dropReason ?? "--"}
+          </div>
+          <div>
+            scoring differs=
+            {String(
+              model.latestLiveVoicePoint != null &&
+                micDebug.stabilizedMidi != null &&
+                Math.abs(model.latestLiveVoicePoint.displayMidi - micDebug.stabilizedMidi) > 0.01,
+            )}
           </div>
           <div>
             voiced={String(micDebug.voiced)} reacquiring={String(micDebug.reacquiring)} comparison=

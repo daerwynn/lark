@@ -3,17 +3,15 @@ import { PITCH_WINDOW_SAMPLES } from "@/lib/pitch/constants";
 import {
   createPitchDetector,
   detectPitchFromSamplesRef,
-  type TimedPitchDetectionFrame,
+  type PitchDetectionFrame,
+  type TimedPitchAnalysisFrame,
 } from "@/lib/pitch/detect";
 import {
   micFrameProcessDecision,
   micFrameSongTime,
   type MicFrameDropReason,
 } from "@/lib/pitch/mic-frame-timing";
-import {
-  shouldDisplayMainMicTrace,
-  shouldScoreMainMicTrace,
-} from "@/lib/pitch/mic-trace-visibility";
+import { shouldScoreMainMicTrace } from "@/lib/pitch/mic-trace-visibility";
 import { LivePitchStabilizer } from "@/lib/pitch/stabilizer";
 import { applyPitchOffsetToFrame } from "@/lib/practice/vocal-calibration";
 import {
@@ -104,6 +102,13 @@ function hzToMidi(hz: number | null | undefined): number | null {
   return typeof hz === "number" && Number.isFinite(hz) && hz > 0 ? freqToSemitone(hz) : null;
 }
 
+function detectionFrameFromAnalysis(frame: TimedPitchAnalysisFrame): PitchDetectionFrame | null {
+  if (!frame.voiced || frame.hz == null || frame.clarity == null) {
+    return null;
+  }
+  return { hz: frame.hz, clarity: frame.clarity, rms: frame.rms };
+}
+
 export function usePitchScoring(
   {
     isReady,
@@ -115,7 +120,7 @@ export function usePitchScoring(
     segments = [],
     micPitchOffsetCents = null,
   }: PitchScoringSource,
-  micPitchFrame: TimedPitchDetectionFrame | null,
+  micPitchFrame: TimedPitchAnalysisFrame | null,
 ) {
   const refDetector = useRef(createPitchDetector());
   const scratchRef = useRef(new Float32Array(PITCH_WINDOW_SAMPLES));
@@ -232,8 +237,46 @@ export function usePitchScoring(
       });
       lastProcessedFrameIdRef.current = frame.id;
 
+      const rawDetectorFrame = detectionFrameFromAnalysis(frame);
+      const rawMic = rawDetectorFrame
+        ? applyPitchOffsetToFrame(rawDetectorFrame, micPitchOffsetCents)
+        : null;
+      const rawMicHz = frame.voiced ? frame.hz : null;
+      const rawMicMidi = hzToMidi(rawMicHz);
+
+      if (!frame.voiced || !rawDetectorFrame) {
+        stabilizerRef.current.stabilize(null);
+        bufferRef.current.markTraceBreak();
+        bufferRef.current.tryPush(null, null, 0, micSongTime, null, frame.id, {
+          hz: null,
+          midi: null,
+          clarity: frame.clarity,
+          rms: frame.rms,
+          voiced: false,
+        });
+        setSeries(bufferRef.current.snapshot());
+        setDebug({
+          rawHz: rawMicHz,
+          stabilizedHz: null,
+          rawMidi: rawMicMidi,
+          stabilizedMidi: null,
+          clarity: frame.clarity,
+          rms: frame.rms,
+          frameAgeMs: decision.ageMs,
+          frameId: frame.id,
+          playbackTime: t,
+          voiced: false,
+          reacquiring: stabilizerRef.current.status().reacquiring,
+          comparisonAvailable: false,
+          displayed: false,
+          scored: false,
+          traceBreakInserted: true,
+          dropReason: "unvoiced",
+        });
+        return;
+      }
+
       const vocals = getVocalsBuffer();
-      const rawMic = applyPitchOffsetToFrame(frame, micPitchOffsetCents);
       const notes = chartNotesRef.current;
       const chartNote = expectedNoteAtTime(notes, micSongTime, CHART_EXPECTED_TOLERANCE_SEC);
       let refHz: number | null = null;
@@ -263,15 +306,21 @@ export function usePitchScoring(
       if (!hasExpectedPitch) {
         stabilizerRef.current.stabilize(null);
         bufferRef.current.markTraceBreak();
-        bufferRef.current.tryPush(null, null, 0, micSongTime, rawMic?.hz ?? null, frame.id);
+        bufferRef.current.tryPush(null, null, 0, micSongTime, rawMic?.hz ?? null, frame.id, {
+          hz: rawMicHz,
+          midi: rawMicMidi,
+          clarity: frame.clarity,
+          rms: frame.rms,
+          voiced: true,
+        });
         setSeries(bufferRef.current.snapshot());
         setDebug({
-          rawHz: rawMic?.hz ?? null,
+          rawHz: rawMicHz,
           stabilizedHz: null,
-          rawMidi: hzToMidi(rawMic?.hz),
+          rawMidi: rawMicMidi,
           stabilizedMidi: null,
-          clarity: rawMic?.clarity ?? null,
-          rms: rawMic?.rms ?? null,
+          clarity: frame.clarity,
+          rms: frame.rms,
           frameAgeMs: decision.ageMs,
           frameId: frame.id,
           playbackTime: t,
@@ -295,11 +344,7 @@ export function usePitchScoring(
         comparisonHz != null && stabilizedMic != null
           ? pitchSimilarity(comparisonHz, stabilizedMic)
           : 0;
-      const displayed = shouldDisplayMainMicTrace({
-        chartNoteAvailable: chartNote != null,
-        comparisonHz,
-        stabilizedHz: stabilizedMic,
-      });
+      const displayed = frame.voiced && (chartNote != null || refHz != null);
       const scored = shouldScoreMainMicTrace({
         chartNoteAvailable: chartNote != null,
         comparisonHz,
@@ -325,17 +370,24 @@ export function usePitchScoring(
         micSongTime,
         rawMic?.hz ?? null,
         frame.id,
+        {
+          hz: rawMicHz,
+          midi: rawMicMidi,
+          clarity: frame.clarity,
+          rms: frame.rms,
+          voiced: true,
+        },
       );
       scoringRef.current.accumulate(micSongTime, comparisonHz, stabilizedMic, sim);
       setSeries(bufferRef.current.snapshot());
       setScore(scoringRef.current.score());
       setDebug({
-        rawHz: rawMic?.hz ?? null,
+        rawHz: rawMicHz,
         stabilizedHz: stabilizedMic,
-        rawMidi: hzToMidi(rawMic?.hz),
+        rawMidi: rawMicMidi,
         stabilizedMidi: hzToMidi(stabilizedMic),
-        clarity: rawMic?.clarity ?? null,
-        rms: rawMic?.rms ?? null,
+        clarity: frame.clarity,
+        rms: frame.rms,
         frameAgeMs: decision.ageMs,
         frameId: frame.id,
         playbackTime: t,

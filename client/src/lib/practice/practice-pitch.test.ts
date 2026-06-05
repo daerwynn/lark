@@ -280,6 +280,63 @@ describe("practice pitch adapter", () => {
     expect(model.vertical.min).toBeLessThan(-6);
   });
 
+  it("builds the main live voice trace from raw mic pitch instead of scoring pitch", () => {
+    const model = buildPracticeLaneModel({
+      segments: [
+        {
+          text: "relative",
+          start: 1,
+          end: 2,
+          words: [{ word: "A", start: 1, end: 2, pitch: 69 }],
+        },
+      ],
+      series: {
+        times: [1.25],
+        refPitches: [semitoneToFreq(69)],
+        userPitches: [semitoneToFreq(60)],
+        rawMicHz: [semitoneToFreq(57)],
+        rawMicMidi: [57],
+        rawMicClarity: [0.9],
+        rawMicRms: [0.05],
+        rawMicVoiced: [true],
+        similarities: [0],
+      },
+      currentTime: 1.25,
+    });
+
+    expect(model.userTrace[0].pitch).toBeCloseTo(72);
+    expect(model.liveVoiceTrace[0].displayMidi).toBeCloseTo(69);
+    expect(model.liveVoiceTrace[0].absoluteOctaveOffsetFromExpected).toBe(-1);
+    expect(model.latestLiveCentsDifference).toBe(0);
+  });
+
+  it("does not create a main live voice point during chart gaps", () => {
+    const model = buildPracticeLaneModel({
+      segments: [
+        {
+          text: "relative",
+          start: 1,
+          end: 2,
+          words: [{ word: "A", start: 1, end: 2, pitch: 69 }],
+        },
+      ],
+      series: {
+        times: [2.5],
+        refPitches: [null],
+        userPitches: [null],
+        rawMicHz: [semitoneToFreq(69)],
+        rawMicMidi: [69],
+        rawMicClarity: [0.9],
+        rawMicRms: [0.05],
+        rawMicVoiced: [true],
+        similarities: [0],
+      },
+      currentTime: 2.5,
+    });
+
+    expect(model.liveVoiceTrace).toHaveLength(0);
+  });
+
   it("carries trace breaks across skipped null pitch samples", () => {
     const model = buildPracticeLaneModel({
       segments: [
@@ -329,7 +386,18 @@ describe("practice pitch adapter", () => {
   });
 
   it("filters pitch history after a local reset time", () => {
-    expect(filterPitchSeriesSince(series, 2).times).toEqual([2.5, 4.5, 5.5]);
-    expect(filterPitchSeriesSince(series, 2).userPitches).toEqual([null, 220, 246.94]);
+    const filtered = filterPitchSeriesSince(
+      {
+        ...series,
+        rawMicHz: [110, 120, 130, 140, 150],
+        rawMicVoiced: [true, true, false, true, true],
+      },
+      2,
+    );
+
+    expect(filtered.times).toEqual([2.5, 4.5, 5.5]);
+    expect(filtered.userPitches).toEqual([null, 220, 246.94]);
+    expect(filtered.rawMicHz).toEqual([130, 140, 150]);
+    expect(filtered.rawMicVoiced).toEqual([false, true, true]);
   });
 });

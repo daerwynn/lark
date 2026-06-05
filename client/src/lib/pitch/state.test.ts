@@ -33,4 +33,31 @@ describe("pitch state helpers", () => {
 
     expect(buffer.snapshot().traceBreaks).toEqual([false, true]);
   });
+
+  it("stores raw mic fields separately from scoring pitch", () => {
+    const buffer = new PitchStateBuffer();
+
+    buffer.tryPush(440, 441, 0.9, 0.1, 220, 3, {
+      hz: 220,
+      midi: 57,
+      clarity: 0.92,
+      rms: 0.04,
+      voiced: true,
+    });
+
+    expect(buffer.snapshot()).toMatchObject({
+      refPitches: [440],
+      userPitches: [441],
+      rawUserPitches: [220],
+      rawMicHz: [220],
+      rawMicMidi: [57],
+      rawMicClarity: [0.92],
+      rawMicRms: [0.04],
+      rawMicVoiced: [true],
+      scoringExpectedHz: [440],
+      scoringMicHz: [441],
+      scoringSimilarities: [0.9],
+      micFrameIds: [3],
+    });
+  });
 });

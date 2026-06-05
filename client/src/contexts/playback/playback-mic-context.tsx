@@ -92,7 +92,7 @@ export function PlaybackMicProvider({ config, children }: PlaybackMicProviderPro
     deviceName: activeMicDeviceName,
   } = useMicCapture(selectedMicId, captureEnabled, captureOptions);
   const {
-    latestPitchFrame,
+    latestAnalysisFrame,
     active: micPitchActive,
     error: micPitchError,
   } = useMicPitch(micPitchEnabled);
@@ -126,7 +126,7 @@ export function PlaybackMicProvider({ config, children }: PlaybackMicProviderPro
       segments,
       micPitchOffsetCents: matchedCalibration?.pitch_offset_cents ?? null,
     },
-    latestPitchFrame,
+    latestAnalysisFrame,
   );
 
   const micErrorShown = useRef(false);
