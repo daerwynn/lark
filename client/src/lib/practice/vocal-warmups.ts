@@ -34,6 +34,10 @@ export interface WarmupExercise {
 }
 
 export const CALIBRATION_SEQUENCE_VERSION = 1;
+export const CALIBRATION_NOTE_DURATION_SEC = 2;
+export const CALIBRATION_SCALE_OFFSETS = [0, 2, 4, 5, 7, 5, 4, 2, 0] as const;
+export const CALIBRATION_PASS_TRANSPOSITIONS = [0, 1, 2] as const;
+export const CALIBRATION_SOLFEGE = ["DO", "RE", "ME", "FA", "SOL", "FA", "ME", "RE", "DO"] as const;
 
 export const VOICE_RANGE_PRESETS: Record<VoiceRangePreset, VoiceRangeConfig> = {
   low: { id: "low", label: "Low", baseMidi: 43, minMidi: 43, maxMidi: 62 },
@@ -228,59 +232,22 @@ export function buildCalibrationSequence(rangePreset: VoiceRangePreset): WarmupT
   const tones: WarmupTone[] = [];
   let cursor = 0;
 
-  cursor = pushTone(tones, cursor, 3, null, "", "Get ready", "rest");
-  cursor = pushTone(tones, cursor, 2, null, "", "Listen for room noise", "rest");
-
-  for (const offset of [0, 2, 4, 5, 7, 5, 4, 2, 0]) {
-    const midi = clampMidi(range.baseMidi + offset, range);
-    cursor = pushTone(
-      tones,
-      cursor,
-      2,
-      midi,
-      "brr",
-      `Lip trill ${midiToNoteName(midi)}`,
-      "tone",
-      true,
-    );
-  }
-
-  cursor = pushTone(tones, cursor, 1.5, null, "", "Breathe", "rest");
-  const sirenStart = clampMidi(range.baseMidi, range);
-  const sirenEnd = clampMidi(range.baseMidi + 7, range);
-  cursor = pushTone(
-    tones,
-    cursor,
-    8,
-    sirenStart,
-    "oo",
-    "Gentle oo siren up",
-    "glide",
-    false,
-    sirenEnd,
-  );
-  cursor = pushTone(
-    tones,
-    cursor,
-    8,
-    sirenEnd,
-    "oo",
-    "Gentle oo siren down",
-    "glide",
-    false,
-    sirenStart,
-  );
-
-  cursor = pushTone(tones, cursor, 1.5, null, "", "Breathe", "rest");
-  for (const offset of [0, 4, 7, 12, 7, 4, 0]) {
-    const midi = clampMidi(range.baseMidi + offset, range);
-    cursor = pushTone(tones, cursor, 2, midi, "noo", `Noo ${midiToNoteName(midi)}`, "tone", true);
-  }
-
-  cursor = pushTone(tones, cursor, 1.5, null, "", "Breathe", "rest");
-  for (const offset of [5, 4, 2, 0, -2, 0]) {
-    const midi = clampMidi(range.baseMidi + offset, range);
-    cursor = pushTone(tones, cursor, 2, midi, "mee", `Mee ${midiToNoteName(midi)}`, "tone", true);
+  for (const transpose of CALIBRATION_PASS_TRANSPOSITIONS) {
+    for (let i = 0; i < CALIBRATION_SCALE_OFFSETS.length; i++) {
+      const offset = CALIBRATION_SCALE_OFFSETS[i];
+      const solfege = CALIBRATION_SOLFEGE[i];
+      const midi = clampMidi(range.baseMidi + transpose + offset, range);
+      cursor = pushTone(
+        tones,
+        cursor,
+        CALIBRATION_NOTE_DURATION_SEC,
+        midi,
+        solfege,
+        `${solfege} ${midiToNoteName(midi)}`,
+        "tone",
+        true,
+      );
+    }
   }
 
   return tones;

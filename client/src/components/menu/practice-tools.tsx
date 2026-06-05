@@ -2,7 +2,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useDialog } from "@/hooks/use-dialog";
 import { useProfiles } from "@/queries/use-profiles";
-import { ActivityIcon, MicVocalIcon } from "lucide-react";
+import { MicVocalIcon } from "lucide-react";
 
 export function PracticeTools() {
   const { setMode } = useDialog();
@@ -16,7 +16,7 @@ export function PracticeTools() {
         <div>
           <h2 className="text-lg font-semibold">Practice Tools</h2>
           <p className="text-sm text-muted-foreground">
-            Calibrate pitch tracking or run guided vocal warmups before choosing a song.
+            Calibrate pitch tracking before choosing a song.
           </p>
         </div>
         {calibration ? (
@@ -25,7 +25,7 @@ export function PracticeTools() {
           <Badge variant="outline">No calibration</Badge>
         )}
       </div>
-      <div className="grid gap-2 sm:grid-cols-2">
+      <div className="grid gap-2">
         <Button
           variant="outline"
           className="h-auto justify-start gap-3 p-3 text-left"
@@ -36,19 +36,6 @@ export function PracticeTools() {
             <span className="block font-semibold">Calibrate Voice</span>
             <span className="block text-xs text-muted-foreground">
               Sing a familiar warmup to tune pitch and latency.
-            </span>
-          </span>
-        </Button>
-        <Button
-          variant="outline"
-          className="h-auto justify-start gap-3 p-3 text-left"
-          onClick={() => setMode("vocal-warmups")}
-        >
-          <ActivityIcon className="size-5 shrink-0" />
-          <span>
-            <span className="block font-semibold">10 Vocal Warmups</span>
-            <span className="block text-xs text-muted-foreground">
-              Traditional coaching patterns across a larger range.
             </span>
           </span>
         </Button>
