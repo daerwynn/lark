@@ -104,6 +104,11 @@ pub struct AppConfig {
     pub separator: Option<String>,
     pub asr_engine: Option<String>,
     pub language_overrides: Option<HashMap<String, String>>,
+    pub practice_playback_rate: Option<f64>,
+    pub practice_pitch_green_cents: Option<f64>,
+    pub practice_pitch_yellow_cents: Option<f64>,
+    pub practice_pitch_orange_cents: Option<f64>,
+    pub practice_mic_latency_ms: Option<f64>,
 }
 
 fn default_data_path_option() -> Option<PathBuf> {
@@ -131,6 +136,11 @@ impl Default for AppConfig {
             separator: None,
             asr_engine: None,
             language_overrides: None,
+            practice_playback_rate: None,
+            practice_pitch_green_cents: None,
+            practice_pitch_yellow_cents: None,
+            practice_pitch_orange_cents: None,
+            practice_mic_latency_ms: None,
         }
     }
 }

@@ -15,8 +15,16 @@ export interface PitchSeries {
   times: number[];
 }
 
+export interface PitchHistoryTimeEvent {
+  isDiscontinuity?: boolean;
+}
+
 export function freqToSemitone(hz: number): number {
   return 12 * Math.log2(hz / 440) + 69;
+}
+
+export function semitoneToFreq(semitone: number): number {
+  return 440 * 2 ** ((semitone - 69) / 12);
 }
 
 export function pitchSimilarity(refHz: number, userHz: number): number {
@@ -98,6 +106,21 @@ export class PitchStateBuffer {
   }
 }
 
+export function shouldResetPitchHistory(
+  previousTime: number,
+  currentTime: number,
+  event?: PitchHistoryTimeEvent,
+  backwardSeekResetSec: number = 0.25,
+): boolean {
+  if (event?.isDiscontinuity) {
+    return true;
+  }
+  if (!Number.isFinite(previousTime) || !Number.isFinite(currentTime) || previousTime <= 0) {
+    return false;
+  }
+  return currentTime + backwardSeekResetSec < previousTime;
+}
+
 export class PitchScoring {
   totalSingable: number;
   earned = 0;
@@ -152,12 +175,14 @@ export function sampleVocalsWindow(
   vocals: AudioBuffer | null,
   timeSec: number,
   out: Float32Array,
+  latencySec: number = MIC_LATENCY_COMPENSATION_SEC,
 ): boolean {
   if (!vocals || out.length !== PITCH_WINDOW_SAMPLES) {
     return false;
   }
   const sr = vocals.sampleRate;
-  const start = Math.floor(Math.max(0, timeSec - MIC_LATENCY_COMPENSATION_SEC) * sr);
+  const safeLatency = Number.isFinite(latencySec) ? Math.max(0, latencySec) : 0;
+  const start = Math.floor(Math.max(0, timeSec - safeLatency) * sr);
   const ch = vocals.numberOfChannels > 0 ? vocals.getChannelData(0) : null;
   if (!ch || start + out.length > ch.length) {
     return false;

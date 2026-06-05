@@ -19,6 +19,7 @@ interface UseSourceVideoSyncOptions {
   src: string | null;
   isPlaying: boolean;
   tempoRatio: number;
+  playbackRate: number;
   subscribe: (fn: TimeSubscriber) => () => void;
   getCurrentTime: () => number;
 }
@@ -31,6 +32,10 @@ function normalizeRatio(ratio: number): number {
   if (!Number.isFinite(ratio) || ratio <= 0) return 1;
 
   return ratio;
+}
+
+export function sourceVideoPlaybackRate(tempoRatio: number, playbackRate: number): number {
+  return normalizeRatio(tempoRatio) * normalizeRatio(playbackRate);
 }
 
 function enforceSilent(video: HTMLVideoElement): void {
@@ -150,6 +155,7 @@ export function useSourceVideoSync({
   src,
   isPlaying,
   tempoRatio,
+  playbackRate,
   subscribe,
   getCurrentTime,
 }: UseSourceVideoSyncOptions): { ready: boolean } {
@@ -158,9 +164,18 @@ export function useSourceVideoSync({
   const lastSyncRef = useRef(0);
 
   const tempoRatioRef = useLatestRef(tempoRatio);
+  const playbackRateRef = useLatestRef(playbackRate);
   const isPlayingRef = useLatestRef(isPlaying);
 
   const currentRatio = useCallback(() => normalizeRatio(tempoRatioRef.current), [tempoRatioRef]);
+  const currentPlaybackRate = useCallback(
+    () => normalizeRatio(playbackRateRef.current),
+    [playbackRateRef],
+  );
+  const currentVideoRate = useCallback(
+    () => sourceVideoPlaybackRate(currentRatio(), currentPlaybackRate()),
+    [currentPlaybackRate, currentRatio],
+  );
   const toSourceTime = useCallback(
     (audioTime: number) => Math.max(0, audioTime * currentRatio()),
     [currentRatio],
@@ -173,7 +188,7 @@ export function useSourceVideoSync({
     readyRef.current = false;
     setReady(false);
     enforceSilent(video);
-    applyPlaybackRate(video, currentRatio());
+    applyPlaybackRate(video, currentVideoRate());
 
     return runInitialSeek(
       video,
@@ -181,32 +196,32 @@ export function useSourceVideoSync({
       () => {
         readyRef.current = true;
         setReady(true);
-        applyPlaybackRate(video, currentRatio());
+        applyPlaybackRate(video, currentVideoRate());
         if (isPlayingRef.current) safePlay(video);
       },
     );
-  }, [currentRatio, getCurrentTime, isPlayingRef, src, toSourceTime, videoRef]);
+  }, [currentVideoRate, getCurrentTime, isPlayingRef, src, toSourceTime, videoRef]);
 
   useEffect(() => {
     const video = videoRef.current;
     if (!video || !readyRef.current) return;
 
     enforceSilent(video);
-    applyPlaybackRate(video, currentRatio());
+    applyPlaybackRate(video, currentVideoRate());
 
     if (isPlaying) safePlay(video);
     else video.pause();
-  }, [currentRatio, isPlaying, videoRef]);
+  }, [currentVideoRate, isPlaying, videoRef]);
 
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
 
-    applyPlaybackRate(video, currentRatio());
+    applyPlaybackRate(video, currentVideoRate());
     if (!readyRef.current) return;
 
     correctDrift(video, toSourceTime(getCurrentTime()), lastSyncRef, "aggressive");
-  }, [currentRatio, getCurrentTime, tempoRatio, toSourceTime, videoRef]);
+  }, [currentVideoRate, getCurrentTime, playbackRate, tempoRatio, toSourceTime, videoRef]);
 
   useEffect(() => {
     return subscribe((time) => {

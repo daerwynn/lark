@@ -29,4 +29,9 @@ export type AppConfig = {
   separator: string | null;
   asr_engine: string | null;
   language_overrides: { [key in string]: string } | null;
+  practice_playback_rate: number | null;
+  practice_pitch_green_cents: number | null;
+  practice_pitch_yellow_cents: number | null;
+  practice_pitch_orange_cents: number | null;
+  practice_mic_latency_ms: number | null;
 };

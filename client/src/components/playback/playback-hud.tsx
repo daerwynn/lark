@@ -8,6 +8,7 @@ import {
 } from "@/contexts/playback";
 import { formatPlaybackTime } from "@/lib/playback/transport-controls";
 import type { VideoFlavor } from "@/lib/playback/video-flavor";
+import { CogIcon } from "lucide-react";
 import { forwardRef, memo, useEffect, useRef } from "react";
 import { isPixabayTheme, themeName } from "./background";
 
@@ -64,6 +65,8 @@ interface PlaybackHudProps {
   usdxTimingAvailable?: boolean;
   usdxTimingOpen?: boolean;
   onToggleUsdxTiming?: () => void;
+  settingsOpen?: boolean;
+  onOpenSettings?: () => void;
 }
 
 function PlaybackHudImpl({
@@ -74,6 +77,8 @@ function PlaybackHudImpl({
   usdxTimingAvailable = false,
   usdxTimingOpen = false,
   onToggleUsdxTiming,
+  settingsOpen = false,
+  onOpenSettings,
 }: PlaybackHudProps) {
   const { duration, guideVolume } = usePlaybackTransportState();
   const { subscribe, getCurrentTime } = usePlaybackTransportActions();
@@ -131,8 +136,21 @@ function PlaybackHudImpl({
         </div>
 
         <div className="flex flex-col items-end">
-          <div className={`text-lg text-white${pitchScore ? "" : "/50"}`}>
-            Score: {pitchScore ?? "--"}
+          <div className="flex items-center gap-2">
+            <div className={`text-lg text-white${pitchScore ? "" : "/50"}`}>
+              Score: {pitchScore ?? "--"}
+            </div>
+            {onOpenSettings && (
+              <button
+                type="button"
+                className="pointer-events-auto flex size-10 items-center justify-center rounded-sm border border-white/30 bg-black/25 text-white/90 transition-colors hover:bg-white/10"
+                aria-label="Open playback settings"
+                aria-pressed={settingsOpen}
+                onClick={onOpenSettings}
+              >
+                <CogIcon className="size-6" />
+              </button>
+            )}
           </div>
           <button
             type="button"

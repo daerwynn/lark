@@ -11,6 +11,7 @@ import { useMicReactive, type MicReactiveRef } from "@/hooks/use-mic-reactive";
 import { usePitchScoring } from "@/hooks/use-pitch-scoring";
 import { usePlaybackConfigPersist } from "@/hooks/playback/use-playback-config-persist";
 import type { PitchSeries } from "@/lib/pitch/state";
+import { practiceSettingsFromConfig } from "@/lib/practice/practice-settings";
 import type { AppConfig } from "@/types/AppConfig";
 import {
   createContext,
@@ -87,9 +88,16 @@ export function PlaybackMicProvider({ config, children }: PlaybackMicProviderPro
     error: micPitchError,
   } = useMicPitch(micPitchEnabled);
   const reactiveRef = useMicReactive(micPitchEnabled);
+  const practiceSettings = useMemo(() => practiceSettingsFromConfig(config), [config]);
 
   const { series, score } = usePitchScoring(
-    { isReady, duration, getVocalsBuffer, subscribe },
+    {
+      isReady,
+      duration,
+      micLatencySec: practiceSettings.micLatencyMs / 1000,
+      getVocalsBuffer,
+      subscribe,
+    },
     latestPitch,
   );
 

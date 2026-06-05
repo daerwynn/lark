@@ -12,6 +12,7 @@ import { LyricsDisplay } from "@/components/playback/lyrics-display";
 import { PauseOverlay } from "@/components/playback/pause-overlay";
 import { PitchGraph } from "@/components/playback/pitch-graph";
 import { PlaybackHud } from "@/components/playback/playback-hud";
+import { PlaybackSettingsPanel } from "@/components/playback/playback-settings-panel";
 import { PlaybackTransportControls } from "@/components/playback/playback-transport-controls";
 import { PracticeOverlay } from "@/components/playback/practice-overlay";
 import { UsdxTimingPanel } from "@/components/playback/usdx-timing-panel";
@@ -22,16 +23,23 @@ import {
   usePlaybackTransportActions,
   usePlaybackTransportState,
 } from "@/contexts/playback";
-import { usePlaybackInput, usePlaybackResult, usePracticeLoop } from "@/hooks/playback";
+import {
+  usePlaybackConfigPersist,
+  usePlaybackInput,
+  usePlaybackResult,
+  usePracticeLoop,
+} from "@/hooks/playback";
+import { clampPlaybackRate } from "@/lib/playback/playback-rate";
 import {
   clampPlaybackTime,
   isSeekOutsideLoop,
   skipPlaybackTime,
   stopPlaybackTarget,
 } from "@/lib/playback/transport-controls";
+import { practiceSettingsFromConfig } from "@/lib/practice/practice-settings";
 import type { AppConfig } from "@/types/AppConfig";
 import type { Song } from "@/types/Song";
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 
 export interface PlaybackInnerProps {
   song: Song;
@@ -44,13 +52,24 @@ interface PlaybackLayoutProps {
 }
 
 function PlaybackLayout({ song, config }: PlaybackLayoutProps) {
-  const { isReady, paused, duration } = usePlaybackTransportState();
-  const { getCurrentTime, handleContinue, handleExit, seek, stopAt, togglePlayback } =
-    usePlaybackTransportActions();
+  const { isReady, paused, duration, playbackRate, pitchPreservingPlaybackSupported } =
+    usePlaybackTransportState();
+  const {
+    getCurrentTime,
+    handleContinue,
+    handleExit,
+    seek,
+    setPlaybackRate,
+    stopAt,
+    togglePlayback,
+  } = usePlaybackTransportActions();
   const { segments } = usePlaybackTranscriptState();
   const { series } = usePlaybackMicState();
   const [practiceMode, setPracticeMode] = useState(false);
   const [usdxTimingOpen, setUsdxTimingOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const persistConfig = usePlaybackConfigPersist(config);
+  const practiceSettings = useMemo(() => practiceSettingsFromConfig(config), [config]);
   const isUsdx = song.transcript_source === "Usdx" || song.usdx != null;
   const practiceLoop = usePracticeLoop({ enabled: practiceMode, segments, series });
   const activeLoop = practiceLoop.activeLoop;
@@ -68,6 +87,23 @@ function PlaybackLayout({ song, config }: PlaybackLayoutProps) {
   const handleCloseUsdxTiming = useCallback(() => {
     setUsdxTimingOpen(false);
   }, []);
+
+  const handleOpenSettings = useCallback(() => {
+    setSettingsOpen(true);
+  }, []);
+
+  const handleCloseSettings = useCallback(() => {
+    setSettingsOpen(false);
+  }, []);
+
+  const handlePlaybackRateRequested = useCallback(
+    (rate: number) => {
+      const next = clampPlaybackRate(rate, pitchPreservingPlaybackSupported);
+      setPlaybackRate(next);
+      persistConfig({ practice_playback_rate: next });
+    },
+    [persistConfig, pitchPreservingPlaybackSupported, setPlaybackRate],
+  );
 
   const handleSeekRequested = useCallback(
     (time: number) => {
@@ -126,9 +162,16 @@ function PlaybackLayout({ song, config }: PlaybackLayoutProps) {
             usdxTimingAvailable={isUsdx}
             usdxTimingOpen={usdxTimingOpen}
             onToggleUsdxTiming={handleToggleUsdxTiming}
+            settingsOpen={settingsOpen}
+            onOpenSettings={handleOpenSettings}
           />
           {practiceMode ? (
-            <PracticeOverlay segments={segments} series={series} loop={practiceLoop} />
+            <PracticeOverlay
+              segments={segments}
+              series={series}
+              loop={practiceLoop}
+              settings={practiceSettings}
+            />
           ) : (
             <>
               <PitchGraph series={series} />
@@ -143,12 +186,20 @@ function PlaybackLayout({ song, config }: PlaybackLayoutProps) {
               onSeekRelative={handleSkipRequested}
             />
           )}
+          <PlaybackSettingsPanel
+            config={config}
+            open={settingsOpen}
+            onClose={handleCloseSettings}
+          />
           <PlaybackTransportControls
             activeLoop={activeLoop}
             onSeekRequested={handleSeekRequested}
             onSkipRequested={handleSkipRequested}
             onStopRequested={handleStopRequested}
             onRestartRequested={handleRestartRequested}
+            playbackRate={playbackRate}
+            pitchPreservingPlaybackSupported={pitchPreservingPlaybackSupported}
+            onPlaybackRateRequested={handlePlaybackRateRequested}
           />
         </>
       )}

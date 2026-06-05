@@ -4,10 +4,19 @@ import { formatPlaybackTime } from "@/lib/playback/transport-controls";
 import type { PitchSeries } from "@/lib/pitch/state";
 import type { PracticeCountInSec, PracticeLoopRange } from "@/lib/practice/practice-loop";
 import {
+  pitchFeedbackLevelFromCents,
+  type PitchFeedbackLevel,
+  type PracticeSettings,
+} from "@/lib/practice/practice-settings";
+import {
   buildPracticeLaneModel,
   DEFAULT_PRACTICE_RANGE,
+  filterPitchSeriesSince,
   MAX_PRACTICE_RANGE,
   MIN_PRACTICE_RANGE,
+  practicePitchToY,
+  practiceTimeToX,
+  PRACTICE_LANE_PADDING_Y,
   PRACTICE_WINDOW_AFTER,
   PRACTICE_WINDOW_BEFORE,
   type PracticeLaneModel,
@@ -29,6 +38,7 @@ interface PracticeOverlayProps {
   segments: Segment[];
   series: PitchSeries;
   loop: PracticeLoopControls;
+  settings: PracticeSettings;
 }
 
 interface Size {
@@ -38,7 +48,6 @@ interface Size {
 
 const GRID_LINES = 7;
 const LANE_PADDING_X = 20;
-const LANE_PADDING_Y = 26;
 const NOTE_COLOR = "rgba(91, 214, 255, 0.78)";
 const NOTE_EDGE = "rgba(255, 255, 255, 0.7)";
 const REF_COLOR = "rgba(91, 214, 255, 0.72)";
@@ -47,6 +56,11 @@ const USER_OK = "rgba(255, 218, 82, 0.95)";
 const USER_LOW = "rgba(255, 88, 88, 0.95)";
 const LOOP_BAND = "rgba(255, 255, 255, 0.08)";
 const LOOP_EDGE = "rgba(255, 255, 255, 0.72)";
+const FEEDBACK_GLOW: Record<PitchFeedbackLevel, string> = {
+  orange: "rgba(255, 145, 58, 0.9)",
+  yellow: "rgba(255, 230, 84, 0.95)",
+  green: "rgba(75, 255, 126, 0.95)",
+};
 
 function useElementSize<T extends HTMLElement>() {
   const ref = useRef<T>(null);
@@ -85,16 +99,11 @@ function setupCanvas(canvas: HTMLCanvasElement, size: Size): CanvasRenderingCont
 }
 
 function timeToX(time: number, currentTime: number, width: number): number {
-  const start = currentTime - PRACTICE_WINDOW_BEFORE;
-  const span = PRACTICE_WINDOW_BEFORE + PRACTICE_WINDOW_AFTER;
-  return ((time - start) / span) * width;
+  return practiceTimeToX({ time, currentTime, width });
 }
 
 function pitchToY(pitch: number, model: PracticeLaneModel, height: number): number {
-  const plotHeight = Math.max(1, height - LANE_PADDING_Y * 2);
-  const normalized = (pitch - model.vertical.min) / model.vertical.range;
-  const clamped = Math.min(1, Math.max(0, normalized));
-  return LANE_PADDING_Y + (1 - clamped) * plotHeight;
+  return practicePitchToY(pitch, model.vertical, height);
 }
 
 function lineColor(similarity: number): string {
@@ -134,7 +143,7 @@ function drawGrid(ctx: CanvasRenderingContext2D, size: Size, model: PracticeLane
   for (let i = 0; i < GRID_LINES; i++) {
     const t = i / (GRID_LINES - 1);
     const pitch = model.vertical.max - model.vertical.range * t;
-    const y = LANE_PADDING_Y + t * Math.max(1, size.height - LANE_PADDING_Y * 2);
+    const y = PRACTICE_LANE_PADDING_Y + t * Math.max(1, size.height - PRACTICE_LANE_PADDING_Y * 2);
     ctx.beginPath();
     ctx.moveTo(0, y);
     ctx.lineTo(size.width, y);
@@ -226,6 +235,44 @@ function drawChartNotes(
   ctx.restore();
 }
 
+function drawPitchFeedbackGlow(
+  ctx: CanvasRenderingContext2D,
+  size: Size,
+  model: PracticeLaneModel,
+  currentTime: number,
+  level: PitchFeedbackLevel | null,
+): void {
+  const note = model.currentExpectedNote;
+  if (!note || !level) return;
+
+  const color = FEEDBACK_GLOW[level];
+  const y = pitchToY(note.pitch, model, size.height);
+  const noteStartX = timeToX(note.start, currentTime, size.width);
+  const noteEndX = timeToX(note.end, currentTime, size.width);
+  const nowX =
+    (PRACTICE_WINDOW_BEFORE / (PRACTICE_WINDOW_BEFORE + PRACTICE_WINDOW_AFTER)) * size.width;
+  const hasDuration = note.end - note.start > 0.05;
+  const left = hasDuration ? Math.max(0, Math.min(noteStartX, noteEndX)) : Math.max(0, nowX - 80);
+  const right = hasDuration
+    ? Math.min(size.width, Math.max(noteStartX, noteEndX))
+    : Math.min(size.width, nowX + 80);
+
+  if (right <= 0 || left >= size.width) return;
+
+  ctx.save();
+  ctx.lineCap = "round";
+  ctx.shadowColor = color;
+  ctx.shadowBlur = 32;
+  ctx.strokeStyle = color;
+  ctx.globalAlpha = 0.72;
+  ctx.lineWidth = 30;
+  ctx.beginPath();
+  ctx.moveTo(left, y);
+  ctx.lineTo(Math.max(left + 1, right), y);
+  ctx.stroke();
+  ctx.restore();
+}
+
 function drawTrace(
   ctx: CanvasRenderingContext2D,
   size: Size,
@@ -290,6 +337,7 @@ function drawLane(
   model: PracticeLaneModel,
   currentTime: number,
   loopRange: PracticeLoopRange | null,
+  feedbackLevel: PitchFeedbackLevel | null,
 ): void {
   const ctx = setupCanvas(canvas, size);
   if (!ctx) return;
@@ -298,6 +346,7 @@ function drawLane(
   ctx.fillRect(0, 0, size.width, size.height);
   drawGrid(ctx, size, model);
   drawLoopRange(ctx, size, currentTime, loopRange);
+  drawPitchFeedbackGlow(ctx, size, model, currentTime, feedbackLevel);
 
   if (model.expectedSource === "chart") {
     drawChartNotes(ctx, size, model, currentTime);
@@ -324,6 +373,28 @@ function SourceLabel({ source }: { source: PracticeLaneModel["expectedSource"] }
         : "Expected: waiting";
 
   return <span>{label}</span>;
+}
+
+function practiceDebugEnabled(): boolean {
+  if (!import.meta.env.DEV) return false;
+
+  try {
+    return (
+      window.localStorage.getItem("nightingale.practice.debug") === "1" ||
+      window.location.search.includes("practiceDebug=1")
+    );
+  } catch {
+    return false;
+  }
+}
+
+function segmentTimingSignature(segments: Segment[]): string {
+  return segments
+    .map((segment) => {
+      const firstBeat = segment.words.find((word) => Number.isFinite(word.beat))?.beat ?? "";
+      return `${segment.start}:${segment.end}:${segment.words.length}:${firstBeat}`;
+    })
+    .join("|");
 }
 
 function PracticeButton({
@@ -374,35 +445,55 @@ function CountInButton({
   );
 }
 
-function PracticeOverlayImpl({ segments, series, loop }: PracticeOverlayProps) {
+function PracticeOverlayImpl({ segments, series, loop, settings }: PracticeOverlayProps) {
   const { isPlaying } = usePlaybackTransportState();
   const { getCurrentTime, subscribe } = usePlaybackTransportActions();
   const [currentTime, setCurrentTime] = useState(() => getCurrentTime());
   const [range, setRange] = useState(DEFAULT_PRACTICE_RANGE);
+  const [seriesResetTime, setSeriesResetTime] = useState(0);
   const lane = useElementSize<HTMLDivElement>();
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const segmentSignatureRef = useRef<string | null>(null);
+  const debugEnabled = useMemo(() => practiceDebugEnabled(), []);
 
   useEffect(() => {
     setCurrentTime(getCurrentTime());
     return subscribe(setCurrentTime);
   }, [getCurrentTime, subscribe]);
 
+  useEffect(() => {
+    const signature = segmentTimingSignature(segments);
+    if (segmentSignatureRef.current != null && segmentSignatureRef.current !== signature) {
+      setSeriesResetTime(getCurrentTime());
+    }
+    segmentSignatureRef.current = signature;
+  }, [getCurrentTime, segments]);
+
+  const visibleSeries = useMemo(
+    () => filterPitchSeriesSince(series, seriesResetTime),
+    [series, seriesResetTime],
+  );
+
   const model = useMemo(
     () =>
       buildPracticeLaneModel({
         segments,
-        series,
+        series: visibleSeries,
         currentTime,
         semitoneRange: range,
       }),
-    [segments, series, currentTime, range],
+    [segments, visibleSeries, currentTime, range],
+  );
+  const feedbackLevel = pitchFeedbackLevelFromCents(
+    model.latestCentsDifference,
+    settings.pitchFeedback,
   );
 
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    drawLane(canvas, lane.size, model, currentTime, loop.activeLoop);
-  }, [lane.size, model, currentTime, loop.activeLoop]);
+    drawLane(canvas, lane.size, model, currentTime, loop.activeLoop, feedbackLevel);
+  }, [lane.size, model, currentTime, loop.activeLoop, feedbackLevel]);
 
   const phrase = model.currentSegment?.text.trim() || "Waiting for the first phrase";
   const nextPhrase =
@@ -515,11 +606,51 @@ function PracticeOverlayImpl({ segments, series, loop }: PracticeOverlayProps) {
         <div className="mt-3 flex justify-center gap-6 text-lg text-white/60">
           <SourceLabel source={model.expectedSource} />
           <span>Live trace: microphone</span>
-          {model.expectedSource === "chart" && (
-            <span>Chart pitch is relative until absolute note calibration is added</span>
+          {model.expectedSource === "chart" && model.pitchCalibration.midiOffset != null && (
+            <span>Pitch lock: guide vocal</span>
+          )}
+          {model.expectedSource === "chart" && model.pitchCalibration.midiOffset == null && (
+            <span>Chart pitch is relative until guide-vocal pitch lock is available</span>
           )}
         </div>
       </div>
+
+      {debugEnabled && (
+        <div className="pointer-events-auto absolute bottom-28 left-8 z-20 max-w-xl rounded-sm border border-white/18 bg-black/82 p-3 font-mono text-xs leading-relaxed text-white/75">
+          <div>time {formatPlaybackTime(currentTime)}</div>
+          <div>
+            mic {model.latestUserPitch ? formatPlaybackTime(model.latestUserPitch.time) : "--"} /{" "}
+            {model.latestUserPitch ? model.latestUserPitch.pitch.toFixed(2) : "--"} st
+          </div>
+          <div>
+            note{" "}
+            {model.currentExpectedNote
+              ? `${formatPlaybackTime(model.currentExpectedNote.start)}-${formatPlaybackTime(
+                  model.currentExpectedNote.end,
+                )} / ${model.currentExpectedNote.pitch.toFixed(2)} st`
+              : "--"}
+          </div>
+          <div>
+            cents {model.latestCentsDifference == null ? "--" : model.latestCentsDifference}
+          </div>
+          <div>
+            pitch offset{" "}
+            {model.pitchCalibration.midiOffset == null
+              ? "--"
+              : model.pitchCalibration.midiOffset.toFixed(2)}{" "}
+            ({model.pitchCalibration.sampleCount})
+          </div>
+          <div>mic latency {settings.micLatencyMs}ms</div>
+          <div>
+            phrase {model.currentSegmentIndex}{" "}
+            {model.currentSegment
+              ? `${formatPlaybackTime(model.currentSegment.start)}-${formatPlaybackTime(
+                  model.currentSegment.end,
+                )}`
+              : "--"}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -7,10 +7,12 @@ export const MIN_PRACTICE_RANGE = 12;
 export const MAX_PRACTICE_RANGE = 48;
 export const PRACTICE_WINDOW_BEFORE = 5;
 export const PRACTICE_WINDOW_AFTER = 8;
+export const PRACTICE_LANE_PADDING_Y = 26;
 
 const SEGMENT_LEAD_SEC = 1;
 const SEGMENT_LINGER_SEC = 0.75;
 const FALLBACK_SAMPLE_COUNT = 30;
+const CHART_PITCH_MATCH_TOLERANCE_SEC = 0.2;
 
 export type ExpectedPitchSource = "chart" | "reference" | "none";
 
@@ -37,6 +39,12 @@ export interface PracticeMissingChartData {
   syllableNotes: boolean;
 }
 
+export interface PracticePitchCalibration {
+  midiOffset: number | null;
+  sampleCount: number;
+  source: "reference" | "none";
+}
+
 export interface PracticeVerticalRange {
   min: number;
   max: number;
@@ -55,6 +63,9 @@ export interface PracticeLaneModel {
   latestUserPitch: PracticeTracePoint | null;
   vertical: PracticeVerticalRange;
   missingChartData: PracticeMissingChartData;
+  pitchCalibration: PracticePitchCalibration;
+  currentExpectedNote: PracticeExpectedNote | null;
+  latestCentsDifference: number | null;
 }
 
 export interface BuildPracticeLaneArgs {
@@ -85,12 +96,22 @@ export function clampPracticeRange(range: number): number {
 export function findPracticeSegmentIndex(segments: Segment[], currentTime: number): number {
   if (segments.length === 0) return -1;
 
-  const active = segments.findIndex(
-    (segment) =>
-      currentTime >= segment.start - SEGMENT_LEAD_SEC &&
-      currentTime <= segment.end + SEGMENT_LINGER_SEC,
-  );
-  if (active >= 0) return active;
+  for (let i = 0; i < segments.length; i++) {
+    const segment = segments[i];
+    if (currentTime < segment.start - SEGMENT_LEAD_SEC) {
+      return i;
+    }
+    if (currentTime > segment.end + SEGMENT_LINGER_SEC) {
+      continue;
+    }
+
+    const next = i + 1;
+    if (next < segments.length && currentTime >= segments[next].start - SEGMENT_LEAD_SEC) {
+      return next;
+    }
+
+    return i;
+  }
 
   const upcoming = segments.findIndex((segment) => currentTime < segment.start);
   return upcoming >= 0 ? upcoming : segments.length - 1;
@@ -122,9 +143,17 @@ export function extractChartNotes(segments: Segment[]): PracticeExpectedNote[] {
   return notes;
 }
 
-function chartPitchAtTime(notes: PracticeExpectedNote[], time: number): number | null {
+export function expectedNoteAtTime(
+  notes: PracticeExpectedNote[],
+  time: number,
+  toleranceSec: number = CHART_PITCH_MATCH_TOLERANCE_SEC,
+): PracticeExpectedNote | null {
   const exact = notes.find((note) => time >= note.start && time <= note.end);
-  if (exact) return exact.pitch;
+  if (exact) return exact;
+
+  if (toleranceSec <= 0) {
+    return null;
+  }
 
   let best: PracticeExpectedNote | null = null;
   let bestDistance = Number.POSITIVE_INFINITY;
@@ -136,7 +165,76 @@ function chartPitchAtTime(notes: PracticeExpectedNote[], time: number): number |
     }
   }
 
-  return best && bestDistance <= 0.2 ? best.pitch : null;
+  return best && bestDistance <= toleranceSec ? best : null;
+}
+
+function chartPitchAtTime(notes: PracticeExpectedNote[], time: number): number | null {
+  return expectedNoteAtTime(notes, time)?.pitch ?? null;
+}
+
+function median(values: number[]): number | null {
+  if (values.length === 0) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  const middle = Math.floor(sorted.length / 2);
+  if (sorted.length % 2 === 1) return sorted[middle];
+  return (sorted[middle - 1] + sorted[middle]) / 2;
+}
+
+export function computeChartPitchCalibration(
+  series: PitchSeries,
+  chartNotes: PracticeExpectedNote[],
+): PracticePitchCalibration {
+  if (chartNotes.length === 0) {
+    return { midiOffset: null, sampleCount: 0, source: "none" };
+  }
+
+  const offsets: number[] = [];
+  for (let i = 0; i < series.times.length; i++) {
+    const time = series.times[i];
+    const refHz = series.refPitches[i];
+    if (!isFiniteNumber(time) || !isFiniteNumber(refHz) || refHz <= 0) continue;
+
+    const note = expectedNoteAtTime(chartNotes, time, 0);
+    if (!note) continue;
+
+    offsets.push(freqToSemitone(refHz) - note.pitch);
+  }
+
+  return {
+    midiOffset: median(offsets),
+    sampleCount: offsets.length,
+    source: offsets.length > 0 ? "reference" : "none",
+  };
+}
+
+function alignTracePitchToPracticeScale(
+  hz: number,
+  time: number,
+  refSemi: number | null,
+  chartNotes: PracticeExpectedNote[],
+  calibration: PracticePitchCalibration,
+  kind: "reference" | "user",
+): number {
+  const chartPitch = chartPitchAtTime(chartNotes, time);
+  let pitch = freqToSemitone(hz);
+
+  if (kind === "user") {
+    if (refSemi != null) {
+      pitch = snapToRefOctave(refSemi, pitch);
+    } else if (chartPitch != null && calibration.midiOffset != null) {
+      pitch = snapToRefOctave(chartPitch + calibration.midiOffset, pitch);
+    }
+  }
+
+  if (calibration.midiOffset != null) {
+    return pitch - calibration.midiOffset;
+  }
+
+  if (chartPitch != null && refSemi != null) {
+    return pitch + chartPitch - refSemi;
+  }
+
+  return pitch;
 }
 
 function tracePointFromHz(
@@ -144,6 +242,7 @@ function tracePointFromHz(
   index: number,
   series: PitchSeries,
   chartNotes: PracticeExpectedNote[],
+  calibration: PracticePitchCalibration,
   kind: "reference" | "user",
 ): PracticeTracePoint | null {
   if (!isFiniteNumber(hz) || hz <= 0) return null;
@@ -152,17 +251,8 @@ function tracePointFromHz(
   if (!isFiniteNumber(time)) return null;
 
   const refHz = series.refPitches[index];
-  let pitch = freqToSemitone(hz);
   const refSemi = isFiniteNumber(refHz) && refHz > 0 ? freqToSemitone(refHz) : null;
-
-  if (kind === "user" && refSemi != null) {
-    pitch = snapToRefOctave(refSemi, pitch);
-  }
-
-  const chartPitch = chartPitchAtTime(chartNotes, time);
-  if (chartPitch != null && refSemi != null) {
-    pitch += chartPitch - refSemi;
-  }
+  const pitch = alignTracePitchToPracticeScale(hz, time, refSemi, chartNotes, calibration, kind);
 
   return {
     time,
@@ -175,18 +265,20 @@ function tracePointFromHz(
 export function buildReferenceTrace(
   series: PitchSeries,
   chartNotes: PracticeExpectedNote[] = [],
+  calibration: PracticePitchCalibration = computeChartPitchCalibration(series, chartNotes),
 ): PracticeTracePoint[] {
   return series.refPitches
-    .map((hz, index) => tracePointFromHz(hz, index, series, chartNotes, "reference"))
+    .map((hz, index) => tracePointFromHz(hz, index, series, chartNotes, calibration, "reference"))
     .filter((point): point is PracticeTracePoint => point != null);
 }
 
 export function buildUserTrace(
   series: PitchSeries,
   chartNotes: PracticeExpectedNote[] = [],
+  calibration: PracticePitchCalibration = computeChartPitchCalibration(series, chartNotes),
 ): PracticeTracePoint[] {
   return series.userPitches
-    .map((hz, index) => tracePointFromHz(hz, index, series, chartNotes, "user"))
+    .map((hz, index) => tracePointFromHz(hz, index, series, chartNotes, calibration, "user"))
     .filter((point): point is PracticeTracePoint => point != null);
 }
 
@@ -264,6 +356,66 @@ function computeVerticalRange(
   };
 }
 
+export interface PracticeTimeViewport {
+  currentTime: number;
+  width: number;
+  windowBefore?: number;
+  windowAfter?: number;
+}
+
+export function practiceTimeToX({
+  time,
+  currentTime,
+  width,
+  windowBefore = PRACTICE_WINDOW_BEFORE,
+  windowAfter = PRACTICE_WINDOW_AFTER,
+}: PracticeTimeViewport & { time: number }): number {
+  const start = currentTime - windowBefore;
+  const span = windowBefore + windowAfter;
+  return ((time - start) / span) * width;
+}
+
+export function practicePitchToY(
+  pitch: number,
+  vertical: PracticeVerticalRange,
+  height: number,
+  paddingY: number = PRACTICE_LANE_PADDING_Y,
+): number {
+  const plotHeight = Math.max(1, height - paddingY * 2);
+  const normalized = (pitch - vertical.min) / vertical.range;
+  const clamped = Math.min(1, Math.max(0, normalized));
+  return paddingY + (1 - clamped) * plotHeight;
+}
+
+export function computePitchCentsDifference(
+  expectedPitch: number | null | undefined,
+  userPitch: number | null | undefined,
+): number | null {
+  if (!isFiniteNumber(expectedPitch) || !isFiniteNumber(userPitch)) return null;
+  return Math.round((userPitch - expectedPitch) * 100);
+}
+
+export function filterPitchSeriesSince(series: PitchSeries, startTime: number): PitchSeries {
+  if (!Number.isFinite(startTime) || startTime <= 0) {
+    return series;
+  }
+
+  const refPitches: (number | null)[] = [];
+  const userPitches: (number | null)[] = [];
+  const similarities: number[] = [];
+  const times: number[] = [];
+
+  for (let i = 0; i < series.times.length; i++) {
+    if (series.times[i] < startTime) continue;
+    refPitches.push(series.refPitches[i] ?? null);
+    userPitches.push(series.userPitches[i] ?? null);
+    similarities.push(series.similarities[i] ?? 0);
+    times.push(series.times[i]);
+  }
+
+  return { refPitches, userPitches, similarities, times };
+}
+
 function notesFromReferenceTrace(trace: PracticeTracePoint[]): PracticeExpectedNote[] {
   return trace.map((point) => ({
     start: point.time,
@@ -287,14 +439,19 @@ export function buildPracticeLaneModel({
   const currentSegment = currentSegmentIndex >= 0 ? segments[currentSegmentIndex] : null;
   const chartNotes = extractChartNotes(segments);
   const hasChartNotes = chartNotes.length > 0;
-  const referenceTrace = buildReferenceTrace(series, chartNotes);
-  const userTrace = buildUserTrace(series, chartNotes);
+  const pitchCalibration = computeChartPitchCalibration(series, chartNotes);
+  const referenceTrace = buildReferenceTrace(series, chartNotes, pitchCalibration);
+  const userTrace = buildUserTrace(series, chartNotes, pitchCalibration);
   const expectedNotes = hasChartNotes ? chartNotes : notesFromReferenceTrace(referenceTrace);
   const expectedSource: ExpectedPitchSource = hasChartNotes
     ? "chart"
     : referenceTrace.length > 0
       ? "reference"
       : "none";
+  const latestUserPitch = userTrace.length > 0 ? userTrace[userTrace.length - 1] : null;
+  const expectedForLatestUser = latestUserPitch
+    ? expectedNoteAtTime(expectedNotes, latestUserPitch.time)
+    : null;
 
   return {
     currentSegment,
@@ -304,7 +461,7 @@ export function buildPracticeLaneModel({
     referenceTrace,
     userTrace,
     matchQuality: computePhraseMatchQuality(series, currentSegment),
-    latestUserPitch: userTrace.length > 0 ? userTrace[userTrace.length - 1] : null,
+    latestUserPitch,
     vertical: computeVerticalRange(
       expectedNotes,
       referenceTrace,
@@ -320,5 +477,11 @@ export function buildPracticeLaneModel({
           ...DEFAULT_MISSING_CHART_DATA,
           syllableNotes: true,
         },
+    pitchCalibration,
+    currentExpectedNote: expectedNoteAtTime(expectedNotes, currentTime),
+    latestCentsDifference: computePitchCentsDifference(
+      expectedForLatestUser?.pitch,
+      latestUserPitch?.pitch,
+    ),
   };
 }

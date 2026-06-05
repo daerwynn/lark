@@ -8,6 +8,7 @@ import {
 } from "@/contexts/playback";
 import { useNavInput } from "@/hooks/navigation/use-nav-input";
 import { usePlaybackConfigPersist } from "@/hooks/playback/use-playback-config-persist";
+import { clampPlaybackRate, stepPlaybackRate } from "@/lib/playback/playback-rate";
 import type { AppConfig } from "@/types/AppConfig";
 import { useCallback, useEffect, useRef } from "react";
 
@@ -36,8 +37,9 @@ function isEditableTarget(target: EventTarget | null): boolean {
  * persist guide-volume changes without coupling this hook to the config query.
  */
 export function usePlaybackInput(config: AppConfig | null, handlers: PlaybackInputHandlers = {}) {
-  const { paused, isReady, guideVolume } = usePlaybackTransportState();
-  const { getCurrentTime, setGuideVolume, handlePause, handleContinue } =
+  const { paused, isReady, guideVolume, playbackRate, pitchPreservingPlaybackSupported } =
+    usePlaybackTransportState();
+  const { getCurrentTime, setGuideVolume, setPlaybackRate, handlePause, handleContinue } =
     usePlaybackTransportActions();
   const { cycleTheme, cycleFlavor } = usePlaybackThemeActions();
   const { firstSegmentStart, lastSegmentEnd, introSkipLeadSec } = usePlaybackTranscriptState();
@@ -129,6 +131,30 @@ export function usePlaybackInput(config: AppConfig | null, handlers: PlaybackInp
       if (e.key === "Home") {
         e.preventDefault();
         onRestartPlayback?.();
+        return;
+      }
+
+      if (e.key === "0") {
+        e.preventDefault();
+        const next = clampPlaybackRate(1, pitchPreservingPlaybackSupported);
+        setPlaybackRate(next);
+        persistConfig({ practice_playback_rate: next });
+        return;
+      }
+
+      if (e.key === "," || e.key === "<") {
+        e.preventDefault();
+        const next = stepPlaybackRate(playbackRate, -1, pitchPreservingPlaybackSupported);
+        setPlaybackRate(next);
+        persistConfig({ practice_playback_rate: next });
+        return;
+      }
+
+      if (e.key === "." || e.key === ">") {
+        e.preventDefault();
+        const next = stepPlaybackRate(playbackRate, 1, pitchPreservingPlaybackSupported);
+        setPlaybackRate(next);
+        persistConfig({ practice_playback_rate: next });
         return;
       }
 
@@ -225,7 +251,10 @@ export function usePlaybackInput(config: AppConfig | null, handlers: PlaybackInp
   }, [
     paused,
     guideVolume,
+    playbackRate,
+    pitchPreservingPlaybackSupported,
     setGuideVolume,
+    setPlaybackRate,
     cycleTheme,
     cycleFlavor,
     persistConfig,

@@ -34,7 +34,7 @@ function useMediaUrl(filePath: string): string | null {
 
 export const SourceVideo = ({ isActive }: SourceVideoProps) => {
   const { sourceVideoPath, sourceVideoTempoRatio } = usePlaybackThemeState();
-  const { isReady, isPlaying } = usePlaybackTransportState();
+  const { isReady, isPlaying, playbackRate } = usePlaybackTransportState();
   const { subscribe, getCurrentTime } = usePlaybackTransportActions();
 
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -47,6 +47,7 @@ export const SourceVideo = ({ isActive }: SourceVideoProps) => {
     src: sourceVideoPath ? src : null,
     isPlaying: playWhenActive,
     tempoRatio: sourceVideoTempoRatio,
+    playbackRate,
     subscribe,
     getCurrentTime,
   });

@@ -8,6 +8,7 @@ import {
   PitchStateBuffer,
   pitchSimilarity,
   sampleVocalsWindow,
+  shouldResetPitchHistory,
 } from "@/lib/pitch/state";
 import { useEffect, useRef, useState } from "react";
 
@@ -16,12 +17,13 @@ const BACKWARD_SEEK_RESET_SEC = 0.25;
 export interface PitchScoringSource {
   isReady: boolean;
   duration: number;
+  micLatencySec: number;
   getVocalsBuffer: () => AudioBuffer | null;
   subscribe: (fn: TimeSubscriber) => () => void;
 }
 
 export function usePitchScoring(
-  { isReady, duration, getVocalsBuffer, subscribe }: PitchScoringSource,
+  { isReady, duration, micLatencySec, getVocalsBuffer, subscribe }: PitchScoringSource,
   micPitch: number | null,
 ) {
   const refDetector = useRef(createPitchDetector());
@@ -62,8 +64,8 @@ export function usePitchScoring(
       return;
     }
 
-    const run = (t: number) => {
-      if (lastRunTimeRef.current > 0 && t + BACKWARD_SEEK_RESET_SEC < lastRunTimeRef.current) {
+    const run: TimeSubscriber = (t, event) => {
+      if (shouldResetPitchHistory(lastRunTimeRef.current, t, event, BACKWARD_SEEK_RESET_SEC)) {
         bufferRef.current.reset();
         setSeries(bufferRef.current.snapshot());
       }
@@ -76,7 +78,7 @@ export function usePitchScoring(
       const vocals = getVocalsBuffer();
       const mp = micPitchRef.current;
 
-      if (!vocals || !sampleVocalsWindow(vocals, t, scratchRef.current)) {
+      if (!vocals || !sampleVocalsWindow(vocals, t, scratchRef.current, micLatencySec)) {
         bufferRef.current.tryPush(null, mp, 0, t);
       } else {
         const refHz = detectPitchFromSamplesRef(
@@ -94,7 +96,7 @@ export function usePitchScoring(
     };
 
     return subscribe(run);
-  }, [isReady, subscribe, getVocalsBuffer]);
+  }, [isReady, subscribe, getVocalsBuffer, micLatencySec]);
 
   return { series, score };
 }

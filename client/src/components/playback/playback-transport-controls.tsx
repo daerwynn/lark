@@ -1,10 +1,14 @@
 import { usePlaybackTransportActions, usePlaybackTransportState } from "@/contexts/playback";
+import { formatPlaybackRate, stepPlaybackRate } from "@/lib/playback/playback-rate";
 import { clampPlaybackTime, formatPlaybackTime } from "@/lib/playback/transport-controls";
 import type { PracticeLoopRange } from "@/lib/practice/practice-loop";
 import {
   FastForwardIcon,
+  GaugeIcon,
+  MinusIcon,
   PauseIcon,
   PlayIcon,
+  PlusIcon,
   RewindIcon,
   RotateCcwIcon,
   SquareIcon,
@@ -17,6 +21,9 @@ interface PlaybackTransportControlsProps {
   onSkipRequested: (deltaSeconds: number) => void;
   onStopRequested: () => void;
   onRestartRequested: () => void;
+  playbackRate: number;
+  pitchPreservingPlaybackSupported: boolean;
+  onPlaybackRateRequested: (rate: number) => void;
 }
 
 interface TransportButtonProps {
@@ -50,6 +57,9 @@ export function PlaybackTransportControls({
   onSkipRequested,
   onStopRequested,
   onRestartRequested,
+  playbackRate,
+  pitchPreservingPlaybackSupported,
+  onPlaybackRateRequested,
 }: PlaybackTransportControlsProps) {
   const { duration, isPlaying } = usePlaybackTransportState();
   const { getCurrentTime, subscribe, togglePlayback } = usePlaybackTransportActions();
@@ -96,6 +106,37 @@ export function PlaybackTransportControls({
             <span>5s</span>
             <FastForwardIcon className="size-6" />
           </TransportButton>
+
+          <div className="flex min-h-14 items-center gap-2 rounded-sm border border-white/18 bg-white/10 px-3 text-white">
+            <GaugeIcon className="size-6" />
+            <button
+              type="button"
+              className="flex size-9 items-center justify-center rounded-sm border border-white/18 bg-black/20 transition-colors hover:bg-white/18 disabled:opacity-35"
+              disabled={!pitchPreservingPlaybackSupported}
+              aria-label="Slow down playback"
+              onClick={() => onPlaybackRateRequested(stepPlaybackRate(playbackRate, -1))}
+            >
+              <MinusIcon className="size-5" />
+            </button>
+            <button
+              type="button"
+              className="min-w-24 rounded-sm border border-white/18 bg-black/20 px-3 py-2 text-lg font-semibold tabular-nums transition-colors hover:bg-white/18 disabled:opacity-35"
+              disabled={!pitchPreservingPlaybackSupported}
+              aria-label="Reset playback speed"
+              onClick={() => onPlaybackRateRequested(1)}
+            >
+              {pitchPreservingPlaybackSupported ? formatPlaybackRate(playbackRate) : "1.00x"}
+            </button>
+            <button
+              type="button"
+              className="flex size-9 items-center justify-center rounded-sm border border-white/18 bg-black/20 transition-colors hover:bg-white/18 disabled:opacity-35"
+              disabled={!pitchPreservingPlaybackSupported}
+              aria-label="Speed up playback"
+              onClick={() => onPlaybackRateRequested(stepPlaybackRate(playbackRate, 1))}
+            >
+              <PlusIcon className="size-5" />
+            </button>
+          </div>
         </div>
 
         <div className="flex min-w-0 flex-1 items-center gap-3">

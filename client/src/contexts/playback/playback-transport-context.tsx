@@ -10,6 +10,7 @@
 
 import { type AudioPlayer, type TimeSubscriber, useAudioPlayer } from "@/hooks/use-audio-player";
 import { ensureMp3Stems, onStemsReady } from "@/bridge/playback";
+import { clampPlaybackRate } from "@/lib/playback/playback-rate";
 import {
   createContext,
   useCallback,
@@ -30,6 +31,8 @@ export interface PlaybackTransportState {
   paused: boolean;
   duration: number;
   guideVolume: number;
+  playbackRate: number;
+  pitchPreservingPlaybackSupported: boolean;
   error: string | null;
 }
 
@@ -38,6 +41,7 @@ export interface PlaybackTransportActions {
   getCurrentTime: () => number;
   seek: (time: number) => void;
   setGuideVolume: (volume: number) => void;
+  setPlaybackRate: (rate: number) => void;
   getVocalsBuffer: AudioPlayer["getVocalsBuffer"];
   getAudioContext: AudioPlayer["getAudioContext"];
   playAudio: () => void;
@@ -56,18 +60,21 @@ const TransportActionsContext = createContext<PlaybackTransportActions | null>(n
 interface PlaybackTransportProviderProps {
   fileHash: string;
   initialGuideVolume: number;
+  initialPlaybackRate: number;
   children: ReactNode;
 }
 
 export function PlaybackTransportProvider({
   fileHash,
   initialGuideVolume,
+  initialPlaybackRate,
   children,
 }: PlaybackTransportProviderProps) {
   const navigate = useNavigate();
   // Snapshot the initial guide volume so changing config later doesn't
   // re-instantiate the audio engine via useAudioPlayer's effect deps.
   const initialGuideVolumeRef = useRef(initialGuideVolume);
+  const initialPlaybackRateRef = useRef(clampPlaybackRate(initialPlaybackRate));
 
   const [stemsReady, setStemsReady] = useState(false);
   const [paused, setPaused] = useState(false);
@@ -106,7 +113,12 @@ export function PlaybackTransportProvider({
     };
   }, [fileHash, navigate]);
 
-  const audio = useAudioPlayer(fileHash, initialGuideVolumeRef.current, stemsReady);
+  const audio = useAudioPlayer(
+    fileHash,
+    initialGuideVolumeRef.current,
+    initialPlaybackRateRef.current,
+    stemsReady,
+  );
 
   useEffect(() => {
     if (audio.error) {
@@ -183,6 +195,8 @@ export function PlaybackTransportProvider({
       paused,
       duration: audio.duration,
       guideVolume: audio.guideVolume,
+      playbackRate: audio.playbackRate,
+      pitchPreservingPlaybackSupported: audio.pitchPreservingPlaybackSupported,
       error: audio.error,
     }),
     [
@@ -191,6 +205,8 @@ export function PlaybackTransportProvider({
       audio.isFinished,
       audio.duration,
       audio.guideVolume,
+      audio.playbackRate,
+      audio.pitchPreservingPlaybackSupported,
       audio.error,
       paused,
     ],
@@ -202,6 +218,7 @@ export function PlaybackTransportProvider({
       getCurrentTime: audio.getCurrentTime,
       seek: audio.seek,
       setGuideVolume: audio.setGuideVolume,
+      setPlaybackRate: audio.setPlaybackRate,
       getVocalsBuffer: audio.getVocalsBuffer,
       getAudioContext: audio.getAudioContext,
       playAudio,
@@ -217,6 +234,7 @@ export function PlaybackTransportProvider({
       audio.getCurrentTime,
       audio.seek,
       audio.setGuideVolume,
+      audio.setPlaybackRate,
       audio.getVocalsBuffer,
       audio.getAudioContext,
       playAudio,
