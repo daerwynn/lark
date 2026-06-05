@@ -35,5 +35,5 @@ export const setFullScreen = async (next: boolean): Promise<void> => {
     }
     return;
   }
-  await tauriWindow().setSimpleFullscreen(next);
+  await tauriWindow().setFullscreen(next);
 };

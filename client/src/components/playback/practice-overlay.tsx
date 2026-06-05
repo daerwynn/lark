@@ -1,5 +1,6 @@
 import { usePlaybackTransportActions, usePlaybackTransportState } from "@/contexts/playback";
 import type { PracticeLoopControls } from "@/hooks/playback";
+import { shortcutHint, type PlaybackShortcutBindings } from "@/lib/playback/keybindings";
 import { formatPlaybackTime } from "@/lib/playback/transport-controls";
 import type { PitchSeries } from "@/lib/pitch/state";
 import type { PracticeCountInSec, PracticeLoopRange } from "@/lib/practice/practice-loop";
@@ -12,6 +13,7 @@ import {
   buildPracticeLaneModel,
   DEFAULT_PRACTICE_RANGE,
   filterPitchSeriesSince,
+  isPracticeSegmentDisplayVisible,
   MAX_PRACTICE_RANGE,
   MIN_PRACTICE_RANGE,
   practicePitchToY,
@@ -39,6 +41,9 @@ interface PracticeOverlayProps {
   series: PitchSeries;
   loop: PracticeLoopControls;
   settings: PracticeSettings;
+  keybindings: PlaybackShortcutBindings;
+  lyricDisplayOffsetSec?: number;
+  lyricLeadSec?: number;
 }
 
 interface Size {
@@ -445,7 +450,15 @@ function CountInButton({
   );
 }
 
-function PracticeOverlayImpl({ segments, series, loop, settings }: PracticeOverlayProps) {
+function PracticeOverlayImpl({
+  segments,
+  series,
+  loop,
+  settings,
+  keybindings,
+  lyricDisplayOffsetSec = 0,
+  lyricLeadSec,
+}: PracticeOverlayProps) {
   const { isPlaying } = usePlaybackTransportState();
   const { getCurrentTime, subscribe } = usePlaybackTransportActions();
   const [currentTime, setCurrentTime] = useState(() => getCurrentTime());
@@ -481,8 +494,10 @@ function PracticeOverlayImpl({ segments, series, loop, settings }: PracticeOverl
         series: visibleSeries,
         currentTime,
         semitoneRange: range,
+        lyricDisplayOffsetSec,
+        lyricLeadSec,
       }),
-    [segments, visibleSeries, currentTime, range],
+    [segments, visibleSeries, currentTime, range, lyricDisplayOffsetSec, lyricLeadSec],
   );
   const feedbackLevel = pitchFeedbackLevelFromCents(
     model.latestCentsDifference,
@@ -495,10 +510,25 @@ function PracticeOverlayImpl({ segments, series, loop, settings }: PracticeOverl
     drawLane(canvas, lane.size, model, currentTime, loop.activeLoop, feedbackLevel);
   }, [lane.size, model, currentTime, loop.activeLoop, feedbackLevel]);
 
-  const phrase = model.currentSegment?.text.trim() || "Waiting for the first phrase";
+  const currentPhraseVisible =
+    model.currentSegment != null &&
+    isPracticeSegmentDisplayVisible(
+      model.currentSegment,
+      currentTime,
+      lyricDisplayOffsetSec,
+      lyricLeadSec,
+    );
+  const phrase =
+    currentPhraseVisible && model.currentSegment
+      ? model.currentSegment.text.trim()
+      : "Waiting for the next phrase";
   const nextPhrase =
-    model.currentSegmentIndex >= 0 && model.currentSegmentIndex + 1 < segments.length
-      ? segments[model.currentSegmentIndex + 1].text.trim()
+    model.currentSegmentIndex >= 0
+      ? currentPhraseVisible
+        ? model.currentSegmentIndex + 1 < segments.length
+          ? segments[model.currentSegmentIndex + 1].text.trim()
+          : ""
+        : (model.currentSegment?.text.trim() ?? "")
       : "";
   const match = model.matchQuality == null ? "--" : `${model.matchQuality}%`;
   const status = isPlaying ? "Live" : "Paused";
@@ -556,19 +586,19 @@ function PracticeOverlayImpl({ segments, series, loop, settings }: PracticeOverl
             </PracticeButton>
             <PracticeButton onClick={loop.handleSetLoopStart}>
               <FlagIcon className="size-5" />
-              Start [
+              Start {shortcutHint(keybindings, "loopStart")}
             </PracticeButton>
             <PracticeButton onClick={loop.handleSetLoopEnd}>
               <FlagIcon className="size-5" />
-              End ]
+              End {shortcutHint(keybindings, "loopEnd")}
             </PracticeButton>
             <PracticeButton onClick={loop.handleRetryLoop} disabled={!loop.activeLoop}>
               <RotateCcwIcon className="size-5" />
-              Retry Enter
+              Retry {shortcutHint(keybindings, "loopRetry")}
             </PracticeButton>
             <PracticeButton onClick={loop.handleClearLoop} disabled={!canClear}>
               <XIcon className="size-5" />
-              Clear \
+              Clear {shortcutHint(keybindings, "loopClear")}
             </PracticeButton>
           </div>
 

@@ -34,4 +34,7 @@ export type AppConfig = {
   practice_pitch_yellow_cents: number | null;
   practice_pitch_orange_cents: number | null;
   practice_mic_latency_ms: number | null;
+  usdx_lyric_display_offset_ms: number | null;
+  playback_volume: number | null;
+  playback_keybindings: { [key in string]: string } | null;
 };

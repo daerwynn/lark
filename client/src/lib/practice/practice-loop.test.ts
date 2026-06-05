@@ -46,6 +46,24 @@ describe("practice loop helpers", () => {
     });
   });
 
+  it("uses lyric display timing when creating the current phrase loop", () => {
+    const closeSegments: Segment[] = [
+      { text: "previous", start: 0, end: 10, words: [] },
+      { text: "next", start: 10.25, end: 12, words: [] },
+    ];
+
+    expect(createPhraseLoopRange(closeSegments, 9.5, 20, 0, 0)).toMatchObject({
+      start: 0,
+      end: 10,
+      label: "previous",
+    });
+    expect(createPhraseLoopRange(closeSegments, 9.5, 20, 0, 1)).toMatchObject({
+      start: 10.25,
+      end: 12,
+      label: "next",
+    });
+  });
+
   it("normalizes reversed manual ranges and clamps to song duration", () => {
     expect(createManualLoopRange(9, 4, 8)).toEqual({
       start: 4,

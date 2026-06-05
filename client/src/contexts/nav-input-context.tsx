@@ -8,6 +8,7 @@ export type NavAction = {
   right: boolean;
   confirm: boolean;
   back: boolean;
+  source?: "keyboard" | "gamepad";
 };
 
 type NavSubscriber = (action: NavAction) => void;
@@ -89,7 +90,7 @@ export function NavInputProvider({ children }: { children: ReactNode }) {
       e.stopPropagation();
       if (!e.repeat) blurActiveElement();
 
-      fire(partial);
+      fire({ ...partial, source: "keyboard" });
     };
 
     window.addEventListener("keydown", onKeyDown, true);
@@ -105,6 +106,7 @@ export function NavInputProvider({ children }: { children: ReactNode }) {
         right: snap.right,
         confirm: snap.confirm,
         back: snap.back,
+        source: "gamepad",
       };
 
       const hasEdge =

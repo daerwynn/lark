@@ -11,6 +11,7 @@
 import { type AudioPlayer, type TimeSubscriber, useAudioPlayer } from "@/hooks/use-audio-player";
 import { ensureMp3Stems, onStemsReady } from "@/bridge/playback";
 import { clampPlaybackRate } from "@/lib/playback/playback-rate";
+import { clampPlaybackVolume } from "@/lib/playback/playback-volume";
 import {
   createContext,
   useCallback,
@@ -31,6 +32,7 @@ export interface PlaybackTransportState {
   paused: boolean;
   duration: number;
   guideVolume: number;
+  playbackVolume: number;
   playbackRate: number;
   pitchPreservingPlaybackSupported: boolean;
   error: string | null;
@@ -41,6 +43,7 @@ export interface PlaybackTransportActions {
   getCurrentTime: () => number;
   seek: (time: number) => void;
   setGuideVolume: (volume: number) => void;
+  setPlaybackVolume: (volume: number) => void;
   setPlaybackRate: (rate: number) => void;
   getVocalsBuffer: AudioPlayer["getVocalsBuffer"];
   getAudioContext: AudioPlayer["getAudioContext"];
@@ -60,6 +63,7 @@ const TransportActionsContext = createContext<PlaybackTransportActions | null>(n
 interface PlaybackTransportProviderProps {
   fileHash: string;
   initialGuideVolume: number;
+  initialPlaybackVolume: number;
   initialPlaybackRate: number;
   children: ReactNode;
 }
@@ -67,6 +71,7 @@ interface PlaybackTransportProviderProps {
 export function PlaybackTransportProvider({
   fileHash,
   initialGuideVolume,
+  initialPlaybackVolume,
   initialPlaybackRate,
   children,
 }: PlaybackTransportProviderProps) {
@@ -74,6 +79,7 @@ export function PlaybackTransportProvider({
   // Snapshot the initial guide volume so changing config later doesn't
   // re-instantiate the audio engine via useAudioPlayer's effect deps.
   const initialGuideVolumeRef = useRef(initialGuideVolume);
+  const initialPlaybackVolumeRef = useRef(clampPlaybackVolume(initialPlaybackVolume));
   const initialPlaybackRateRef = useRef(clampPlaybackRate(initialPlaybackRate));
 
   const [stemsReady, setStemsReady] = useState(false);
@@ -116,6 +122,7 @@ export function PlaybackTransportProvider({
   const audio = useAudioPlayer(
     fileHash,
     initialGuideVolumeRef.current,
+    initialPlaybackVolumeRef.current,
     initialPlaybackRateRef.current,
     stemsReady,
   );
@@ -195,6 +202,7 @@ export function PlaybackTransportProvider({
       paused,
       duration: audio.duration,
       guideVolume: audio.guideVolume,
+      playbackVolume: audio.playbackVolume,
       playbackRate: audio.playbackRate,
       pitchPreservingPlaybackSupported: audio.pitchPreservingPlaybackSupported,
       error: audio.error,
@@ -205,6 +213,7 @@ export function PlaybackTransportProvider({
       audio.isFinished,
       audio.duration,
       audio.guideVolume,
+      audio.playbackVolume,
       audio.playbackRate,
       audio.pitchPreservingPlaybackSupported,
       audio.error,
@@ -218,6 +227,7 @@ export function PlaybackTransportProvider({
       getCurrentTime: audio.getCurrentTime,
       seek: audio.seek,
       setGuideVolume: audio.setGuideVolume,
+      setPlaybackVolume: audio.setPlaybackVolume,
       setPlaybackRate: audio.setPlaybackRate,
       getVocalsBuffer: audio.getVocalsBuffer,
       getAudioContext: audio.getAudioContext,
@@ -234,6 +244,7 @@ export function PlaybackTransportProvider({
       audio.getCurrentTime,
       audio.seek,
       audio.setGuideVolume,
+      audio.setPlaybackVolume,
       audio.setPlaybackRate,
       audio.getVocalsBuffer,
       audio.getAudioContext,

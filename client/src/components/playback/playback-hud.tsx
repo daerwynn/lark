@@ -6,19 +6,33 @@ import {
   usePlaybackTransportActions,
   usePlaybackTransportState,
 } from "@/contexts/playback";
+import {
+  shortcutHint,
+  shortcutListHint,
+  type PlaybackShortcutBindings,
+} from "@/lib/playback/keybindings";
+import { formatPlaybackVolume } from "@/lib/playback/playback-volume";
 import { formatPlaybackTime } from "@/lib/playback/transport-controls";
 import type { VideoFlavor } from "@/lib/playback/video-flavor";
 import { CogIcon } from "lucide-react";
 import { forwardRef, memo, useEffect, useRef } from "react";
 import { isPixabayTheme, themeName } from "./background";
 
-function formatGuideText(volume: number): string {
+function formatGuideText(volume: number, keybindings: PlaybackShortcutBindings): string {
   const pct = Math.round(volume * 100);
-  return pct === 0 ? "Guide: OFF" : `Guide: ${pct}% [G +/-]`;
+  const hint = shortcutListHint(keybindings, ["guideToggle", "guideUp", "guideDown"]);
+  return pct === 0 ? `Guide: OFF ${hint}` : `Guide: ${pct}% ${hint}`;
 }
 
-function formatThemeText(themeIndex: number, videoFlavor: VideoFlavor): string {
-  return `Theme: ${themeName(themeIndex, videoFlavor)} [T${isPixabayTheme(themeIndex) ? "/F" : ""}]`;
+function formatThemeText(
+  themeIndex: number,
+  videoFlavor: VideoFlavor,
+  keybindings: PlaybackShortcutBindings,
+): string {
+  const actions = isPixabayTheme(themeIndex)
+    ? (["themeCycle", "videoFlavorCycle"] as const)
+    : (["themeCycle"] as const);
+  return `Theme: ${themeName(themeIndex, videoFlavor)} ${shortcutListHint(keybindings, [...actions])}`;
 }
 
 const SkipButton = forwardRef<HTMLButtonElement, { label: string; onClick: () => void }>(
@@ -67,6 +81,7 @@ interface PlaybackHudProps {
   onToggleUsdxTiming?: () => void;
   settingsOpen?: boolean;
   onOpenSettings?: () => void;
+  keybindings: PlaybackShortcutBindings;
 }
 
 function PlaybackHudImpl({
@@ -79,8 +94,9 @@ function PlaybackHudImpl({
   onToggleUsdxTiming,
   settingsOpen = false,
   onOpenSettings,
+  keybindings,
 }: PlaybackHudProps) {
-  const { duration, guideVolume } = usePlaybackTransportState();
+  const { duration, guideVolume, playbackVolume } = usePlaybackTransportState();
   const { subscribe, getCurrentTime } = usePlaybackTransportActions();
   const { themeIndex, videoFlavor } = usePlaybackThemeState();
   const { firstSegmentStart, lastSegmentEnd, introSkipLeadSec, transcriptSource } =
@@ -158,7 +174,7 @@ function PlaybackHudImpl({
             aria-pressed={practiceMode}
             onClick={onTogglePracticeMode}
           >
-            Practice: {practiceMode ? "ON" : "OFF"} [P]
+            Practice: {practiceMode ? "ON" : "OFF"} {shortcutHint(keybindings, "practiceMode")}
           </button>
           {usdxTimingAvailable && (
             <button
@@ -167,14 +183,24 @@ function PlaybackHudImpl({
               aria-pressed={usdxTimingOpen}
               onClick={onToggleUsdxTiming}
             >
-              USDX Timing: {usdxTimingOpen ? "ON" : "OFF"} [U]
+              USDX Timing: {usdxTimingOpen ? "ON" : "OFF"} {shortcutHint(keybindings, "usdxTiming")}
             </button>
           )}
-          <HintText>{formatGuideText(guideVolume)}</HintText>
-          <HintText>Mic: {micUserEnabled ? micName : "OFF"} [M/N]</HintText>
-          <HintText>Monitor: {micMonitorUserEnabled ? "ON" : "OFF"} [R]</HintText>
-          <HintText>{formatThemeText(themeIndex, videoFlavor)}</HintText>
-          <HintText>[ESC] Back</HintText>
+          <HintText>{formatGuideText(guideVolume, keybindings)}</HintText>
+          <HintText>
+            Volume: {formatPlaybackVolume(playbackVolume)}{" "}
+            {shortcutListHint(keybindings, ["volumeUp", "volumeDown"])}
+          </HintText>
+          <HintText>
+            Mic: {micUserEnabled ? micName : "OFF"}{" "}
+            {shortcutListHint(keybindings, ["micToggle", "micCycle"])}
+          </HintText>
+          <HintText>
+            Monitor: {micMonitorUserEnabled ? "ON" : "OFF"}{" "}
+            {shortcutHint(keybindings, "micMonitorToggle")}
+          </HintText>
+          <HintText>{formatThemeText(themeIndex, videoFlavor, keybindings)}</HintText>
+          <HintText>{shortcutHint(keybindings, "pauseMenu")} Back</HintText>
         </div>
       </div>
 

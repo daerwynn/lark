@@ -6,6 +6,7 @@
 import type { AppConfig } from "@/types/AppConfig";
 import type { Song } from "@/types/Song";
 import { clampPlaybackRate } from "@/lib/playback/playback-rate";
+import { clampPlaybackVolume } from "@/lib/playback/playback-volume";
 import type { ReactNode } from "react";
 import { PlaybackMicProvider } from "./playback-mic-context";
 import { PlaybackThemeProvider } from "./playback-theme-context";
@@ -23,6 +24,7 @@ export function PlaybackProviders({ song, config, children }: PlaybackProvidersP
     <PlaybackTransportProvider
       fileHash={song.file_hash}
       initialGuideVolume={config?.guide_volume ?? 0.3}
+      initialPlaybackVolume={clampPlaybackVolume(config?.playback_volume ?? 1)}
       initialPlaybackRate={clampPlaybackRate(config?.practice_playback_rate ?? 1)}
     >
       <PlaybackThemeProvider song={song} config={config}>

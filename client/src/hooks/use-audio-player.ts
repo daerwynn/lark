@@ -9,6 +9,7 @@
 import type { PlaybackAdapter } from "@/bridge/playback";
 import { playbackAdapter } from "@/bridge/playback";
 import { clampPlaybackRate, DEFAULT_PLAYBACK_RATE } from "@/lib/playback/playback-rate";
+import { clampPlaybackVolume } from "@/lib/playback/playback-volume";
 import { clampPlaybackTime } from "@/lib/playback/transport-controls";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -31,6 +32,7 @@ export interface AudioPlayer {
   isFinished: boolean;
   error: string | null;
   guideVolume: number;
+  playbackVolume: number;
   playbackRate: number;
   pitchPreservingPlaybackSupported: boolean;
   play: () => void;
@@ -38,6 +40,7 @@ export interface AudioPlayer {
   resume: () => void;
   seek: (time: number) => void;
   setGuideVolume: (v: number) => void;
+  setPlaybackVolume: (v: number) => void;
   setPlaybackRate: (rate: number) => void;
   cleanup: () => void;
   getVocalsBuffer: () => AudioBuffer | null;
@@ -141,6 +144,7 @@ function releaseAudio(audio: HTMLAudioElement | null): void {
 export function useAudioPlayer(
   fileHash: string,
   initialGuideVolume: number,
+  initialPlaybackVolume: number,
   initialPlaybackRate: number,
   enabled: boolean,
   adapter: PlaybackAdapter = playbackAdapter,
@@ -154,6 +158,8 @@ export function useAudioPlayer(
   const subscribersRef = useRef<Set<TimeSubscriber>>(new Set());
   const playingRef = useRef(false);
   const cancelledRef = useRef(false);
+  const guideVolumeRef = useRef(Math.max(0, Math.min(1, initialGuideVolume)));
+  const playbackVolumeRef = useRef(clampPlaybackVolume(initialPlaybackVolume));
   const playbackRateRef = useRef(DEFAULT_PLAYBACK_RATE);
   const pitchPreservingSupportedRef = useRef(true);
 
@@ -162,7 +168,8 @@ export function useAudioPlayer(
   const [isPlaying, setIsPlaying] = useState(false);
   const [isFinished, setIsFinished] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [guideVolume, setGuideVolumeState] = useState(initialGuideVolume);
+  const [guideVolume, setGuideVolumeState] = useState(guideVolumeRef.current);
+  const [playbackVolume, setPlaybackVolumeState] = useState(playbackVolumeRef.current);
   const [playbackRate, setPlaybackRateState] = useState(DEFAULT_PLAYBACK_RATE);
   const [pitchPreservingPlaybackSupported, setPitchPreservingPlaybackSupported] = useState(true);
 
@@ -186,6 +193,18 @@ export function useAudioPlayer(
   const notifySubscribers = useCallback((t: number, event: PlaybackTimeEvent) => {
     for (const fn of subscribersRef.current) {
       fn(t, event);
+    }
+  }, []);
+
+  const applyMediaVolumes = useCallback(() => {
+    const master = playbackVolumeRef.current;
+    const guide = guideVolumeRef.current;
+
+    if (instrumentalElRef.current) {
+      instrumentalElRef.current.volume = master;
+    }
+    if (vocalsElRef.current) {
+      vocalsElRef.current.volume = Math.max(0, Math.min(1, master * guide));
     }
   }, []);
 
@@ -249,6 +268,10 @@ export function useAudioPlayer(
     setIsPlaying(false);
     setIsFinished(false);
     setError(null);
+    guideVolumeRef.current = Math.max(0, Math.min(1, initialGuideVolume));
+    playbackVolumeRef.current = clampPlaybackVolume(initialPlaybackVolume);
+    setGuideVolumeState(guideVolumeRef.current);
+    setPlaybackVolumeState(playbackVolumeRef.current);
 
     const ctx = new AudioContext();
     ctxRef.current = ctx;
@@ -275,7 +298,7 @@ export function useAudioPlayer(
         applyPlaybackRate(inst, nextRate, canPreservePitch);
         applyPlaybackRate(voc, nextRate, canPreservePitch);
 
-        voc.volume = Math.max(0, Math.min(1, initialGuideVolume));
+        applyMediaVolumes();
 
         inst.onended = () => {
           if (!cancelledRef.current && playingRef.current && instrumentalElRef.current === inst) {
@@ -368,7 +391,17 @@ export function useAudioPlayer(
       ctx.close();
       ctxRef.current = null;
     };
-  }, [adapter, enabled, fileHash, initialGuideVolume, initialPlaybackRate, startMedia, stopMedia]);
+  }, [
+    adapter,
+    applyMediaVolumes,
+    enabled,
+    fileHash,
+    initialGuideVolume,
+    initialPlaybackRate,
+    initialPlaybackVolume,
+    startMedia,
+    stopMedia,
+  ]);
 
   const play = useCallback(() => {
     startMedia(currentTimeRef.current);
@@ -409,15 +442,27 @@ export function useAudioPlayer(
     [getCurrentTime, notifySubscribers, setMediaPosition, startMedia, stopMedia],
   );
 
-  const setGuideVolume = useCallback((v: number) => {
-    const clamped = Math.max(0, Math.min(1, v));
+  const setGuideVolume = useCallback(
+    (v: number) => {
+      const clamped = Math.max(0, Math.min(1, v));
 
-    setGuideVolumeState(clamped);
+      guideVolumeRef.current = clamped;
+      setGuideVolumeState(clamped);
+      applyMediaVolumes();
+    },
+    [applyMediaVolumes],
+  );
 
-    if (vocalsElRef.current) {
-      vocalsElRef.current.volume = clamped;
-    }
-  }, []);
+  const setPlaybackVolume = useCallback(
+    (v: number) => {
+      const clamped = clampPlaybackVolume(v);
+
+      playbackVolumeRef.current = clamped;
+      setPlaybackVolumeState(clamped);
+      applyMediaVolumes();
+    },
+    [applyMediaVolumes],
+  );
 
   const setPlaybackRate = useCallback((rate: number) => {
     const next = clampPlaybackRate(rate, pitchPreservingSupportedRef.current);
@@ -451,6 +496,7 @@ export function useAudioPlayer(
       isFinished,
       error,
       guideVolume,
+      playbackVolume,
       playbackRate,
       pitchPreservingPlaybackSupported,
       play,
@@ -458,6 +504,7 @@ export function useAudioPlayer(
       resume,
       seek,
       setGuideVolume,
+      setPlaybackVolume,
       setPlaybackRate,
       cleanup,
       getVocalsBuffer,
@@ -472,6 +519,7 @@ export function useAudioPlayer(
       isFinished,
       error,
       guideVolume,
+      playbackVolume,
       playbackRate,
       pitchPreservingPlaybackSupported,
       play,
@@ -479,6 +527,7 @@ export function useAudioPlayer(
       resume,
       seek,
       setGuideVolume,
+      setPlaybackVolume,
       setPlaybackRate,
       cleanup,
       getVocalsBuffer,

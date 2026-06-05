@@ -11,6 +11,7 @@ import {
   extractChartNotes,
   filterPitchSeriesSince,
   findPracticeSegmentIndex,
+  isPracticeSegmentDisplayVisible,
   practicePitchToY,
   practiceTimeToX,
   type PracticeExpectedNote,
@@ -58,6 +59,20 @@ describe("practice pitch adapter", () => {
     ];
 
     expect(findPracticeSegmentIndex(closeSegments, 9.5)).toBe(1);
+  });
+
+  it("supports exact USDX lyric phrase timing and display offsets", () => {
+    const closeSegments: Segment[] = [
+      { text: "previous", start: 0, end: 10, words: [] },
+      { text: "next", start: 10.25, end: 12, words: [] },
+    ];
+
+    expect(findPracticeSegmentIndex(closeSegments, 9.5, 0, 0)).toBe(0);
+    expect(findPracticeSegmentIndex(closeSegments, 10.25, 0, 0)).toBe(1);
+    expect(findPracticeSegmentIndex(closeSegments, 10.4, 0.2, 0)).toBe(0);
+    expect(isPracticeSegmentDisplayVisible(closeSegments[1], 10.2, 0, 0)).toBe(false);
+    expect(isPracticeSegmentDisplayVisible(closeSegments[1], 10.25, 0, 0)).toBe(true);
+    expect(isPracticeSegmentDisplayVisible(closeSegments[1], 10.4, 0.2, 0)).toBe(false);
   });
 
   it("extracts chart notes from transcript word pitches", () => {

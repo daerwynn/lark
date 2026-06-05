@@ -1,4 +1,5 @@
 import { usePlaybackTransportActions, usePlaybackTransportState } from "@/contexts/playback";
+import { shortcutHint, type PlaybackShortcutBindings } from "@/lib/playback/keybindings";
 import { formatPlaybackRate, stepPlaybackRate } from "@/lib/playback/playback-rate";
 import { clampPlaybackTime, formatPlaybackTime } from "@/lib/playback/transport-controls";
 import type { PracticeLoopRange } from "@/lib/practice/practice-loop";
@@ -24,6 +25,7 @@ interface PlaybackTransportControlsProps {
   playbackRate: number;
   pitchPreservingPlaybackSupported: boolean;
   onPlaybackRateRequested: (rate: number) => void;
+  keybindings: PlaybackShortcutBindings;
 }
 
 interface TransportButtonProps {
@@ -60,6 +62,7 @@ export function PlaybackTransportControls({
   playbackRate,
   pitchPreservingPlaybackSupported,
   onPlaybackRateRequested,
+  keybindings,
 }: PlaybackTransportControlsProps) {
   const { duration, isPlaying } = usePlaybackTransportState();
   const { getCurrentTime, subscribe, togglePlayback } = usePlaybackTransportActions();
@@ -84,7 +87,9 @@ export function PlaybackTransportControls({
         <div className="flex flex-wrap items-center gap-2">
           <TransportButton label={isPlaying ? "Pause" : "Play"} onClick={togglePlayback} emphasis>
             {isPlaying ? <PauseIcon className="size-7" /> : <PlayIcon className="size-7" />}
-            <span>{isPlaying ? "Pause" : "Play"}</span>
+            <span>
+              {isPlaying ? "Pause" : "Play"} {shortcutHint(keybindings, "playPause")}
+            </span>
           </TransportButton>
 
           <TransportButton label="Stop" onClick={onStopRequested}>
@@ -94,16 +99,16 @@ export function PlaybackTransportControls({
 
           <TransportButton label="Restart" onClick={onRestartRequested}>
             <RotateCcwIcon className="size-6" />
-            <span>Start</span>
+            <span>Start {shortcutHint(keybindings, "restart")}</span>
           </TransportButton>
 
           <TransportButton label="Back 5 seconds" onClick={() => onSkipRequested(-5)}>
             <RewindIcon className="size-6" />
-            <span>5s</span>
+            <span>5s {shortcutHint(keybindings, "skipBack5")}</span>
           </TransportButton>
 
           <TransportButton label="Forward 5 seconds" onClick={() => onSkipRequested(5)}>
-            <span>5s</span>
+            <span>5s {shortcutHint(keybindings, "skipForward5")}</span>
             <FastForwardIcon className="size-6" />
           </TransportButton>
 
@@ -136,6 +141,10 @@ export function PlaybackTransportControls({
             >
               <PlusIcon className="size-5" />
             </button>
+            <span className="text-xs leading-tight text-white/55">
+              {shortcutHint(keybindings, "speedDown")} {shortcutHint(keybindings, "speedReset")}{" "}
+              {shortcutHint(keybindings, "speedUp")}
+            </span>
           </div>
         </div>
 

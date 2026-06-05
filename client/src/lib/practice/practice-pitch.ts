@@ -75,6 +75,8 @@ export interface BuildPracticeLaneArgs {
   semitoneRange?: number;
   windowBefore?: number;
   windowAfter?: number;
+  lyricDisplayOffsetSec?: number;
+  lyricLeadSec?: number;
 }
 
 const DEFAULT_MISSING_CHART_DATA: PracticeMissingChartData = {
@@ -93,28 +95,47 @@ export function clampPracticeRange(range: number): number {
   return Math.min(MAX_PRACTICE_RANGE, Math.max(MIN_PRACTICE_RANGE, Math.round(range)));
 }
 
-export function findPracticeSegmentIndex(segments: Segment[], currentTime: number): number {
+export function findPracticeSegmentIndex(
+  segments: Segment[],
+  currentTime: number,
+  lyricDisplayOffsetSec: number = 0,
+  lyricLeadSec: number = SEGMENT_LEAD_SEC,
+): number {
   if (segments.length === 0) return -1;
+
+  const displayTime = currentTime - lyricDisplayOffsetSec;
 
   for (let i = 0; i < segments.length; i++) {
     const segment = segments[i];
-    if (currentTime < segment.start - SEGMENT_LEAD_SEC) {
+    if (displayTime < segment.start - lyricLeadSec) {
       return i;
     }
-    if (currentTime > segment.end + SEGMENT_LINGER_SEC) {
+    if (displayTime > segment.end + SEGMENT_LINGER_SEC) {
       continue;
     }
 
     const next = i + 1;
-    if (next < segments.length && currentTime >= segments[next].start - SEGMENT_LEAD_SEC) {
+    if (next < segments.length && displayTime >= segments[next].start - lyricLeadSec) {
       return next;
     }
 
     return i;
   }
 
-  const upcoming = segments.findIndex((segment) => currentTime < segment.start);
+  const upcoming = segments.findIndex((segment) => displayTime < segment.start);
   return upcoming >= 0 ? upcoming : segments.length - 1;
+}
+
+export function isPracticeSegmentDisplayVisible(
+  segment: Segment,
+  currentTime: number,
+  lyricDisplayOffsetSec: number = 0,
+  lyricLeadSec: number = SEGMENT_LEAD_SEC,
+): boolean {
+  const displayTime = currentTime - lyricDisplayOffsetSec;
+  return (
+    displayTime >= segment.start - lyricLeadSec && displayTime <= segment.end + SEGMENT_LINGER_SEC
+  );
 }
 
 function wordPitch(word: Word): number | null {
@@ -433,9 +454,16 @@ export function buildPracticeLaneModel({
   semitoneRange = DEFAULT_PRACTICE_RANGE,
   windowBefore = PRACTICE_WINDOW_BEFORE,
   windowAfter = PRACTICE_WINDOW_AFTER,
+  lyricDisplayOffsetSec = 0,
+  lyricLeadSec = SEGMENT_LEAD_SEC,
 }: BuildPracticeLaneArgs): PracticeLaneModel {
   const range = clampPracticeRange(semitoneRange);
-  const currentSegmentIndex = findPracticeSegmentIndex(segments, currentTime);
+  const currentSegmentIndex = findPracticeSegmentIndex(
+    segments,
+    currentTime,
+    lyricDisplayOffsetSec,
+    lyricLeadSec,
+  );
   const currentSegment = currentSegmentIndex >= 0 ? segments[currentSegmentIndex] : null;
   const chartNotes = extractChartNotes(segments);
   const hasChartNotes = chartNotes.length > 0;

@@ -12,6 +12,7 @@ export interface PracticePitchFeedbackSettings {
 export interface PracticeSettings {
   pitchFeedback: PracticePitchFeedbackSettings;
   micLatencyMs: number;
+  usdxLyricDisplayOffsetMs: number;
 }
 
 export const DEFAULT_PITCH_GREEN_CENTS = 10;
@@ -21,6 +22,9 @@ export const MIN_PITCH_THRESHOLD_CENTS = 1;
 export const MAX_PITCH_THRESHOLD_CENTS = 200;
 export const MIN_MIC_LATENCY_MS = 0;
 export const MAX_MIC_LATENCY_MS = 500;
+export const DEFAULT_USDX_LYRIC_DISPLAY_OFFSET_MS = 0;
+export const MIN_USDX_LYRIC_DISPLAY_OFFSET_MS = -3000;
+export const MAX_USDX_LYRIC_DISPLAY_OFFSET_MS = 3000;
 
 function finiteOrDefault(value: number | null | undefined, fallback: number): number {
   return typeof value === "number" && Number.isFinite(value) ? value : fallback;
@@ -62,6 +66,14 @@ export function normalizeMicLatencyMs(value: number | null | undefined): number 
   );
 }
 
+export function normalizeUsdxLyricDisplayOffsetMs(value: number | null | undefined): number {
+  return clamp(
+    Math.round(finiteOrDefault(value, DEFAULT_USDX_LYRIC_DISPLAY_OFFSET_MS)),
+    MIN_USDX_LYRIC_DISPLAY_OFFSET_MS,
+    MAX_USDX_LYRIC_DISPLAY_OFFSET_MS,
+  );
+}
+
 export function practiceSettingsFromConfig(config: AppConfig | null | undefined): PracticeSettings {
   return {
     pitchFeedback: normalizePitchFeedbackSettings(
@@ -70,6 +82,9 @@ export function practiceSettingsFromConfig(config: AppConfig | null | undefined)
       config?.practice_pitch_orange_cents,
     ),
     micLatencyMs: normalizeMicLatencyMs(config?.practice_mic_latency_ms),
+    usdxLyricDisplayOffsetMs: normalizeUsdxLyricDisplayOffsetMs(
+      config?.usdx_lyric_display_offset_ms,
+    ),
   };
 }
 

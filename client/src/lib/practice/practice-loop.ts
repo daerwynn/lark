@@ -69,8 +69,15 @@ export function createPhraseLoopRange(
   segments: Segment[],
   currentTime: number,
   duration: number,
+  lyricDisplayOffsetSec: number = 0,
+  lyricLeadSec?: number,
 ): PracticeLoopRange | null {
-  const index = findPracticeSegmentIndex(segments, currentTime);
+  const index = findPracticeSegmentIndex(
+    segments,
+    currentTime,
+    lyricDisplayOffsetSec,
+    lyricLeadSec,
+  );
   const segment = index >= 0 ? segments[index] : null;
   if (!segment) {
     return null;

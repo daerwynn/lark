@@ -64,6 +64,27 @@ describe("lyric phrase selection", () => {
     expect(isPlaybackSegmentVisible(segments[0], 3.51)).toBe(false);
   });
 
+  it("can disable lead-in timing for USDX lyric display", () => {
+    expect(isPlaybackSegmentVisible(segments[1], 4.9, { leadSec: 0 })).toBe(false);
+    expect(isPlaybackSegmentVisible(segments[1], 5, { leadSec: 0 })).toBe(true);
+    expect(findPlaybackSegmentIndex(segments, 5, 0, { leadSec: 0 })).toBe(1);
+  });
+
+  it("applies display offsets without changing segment timing", () => {
+    expect(isPlaybackSegmentVisible(segments[1], 5.2, { displayOffsetSec: 0.25, leadSec: 0 })).toBe(
+      false,
+    );
+    expect(
+      isPlaybackSegmentVisible(segments[1], 5.25, { displayOffsetSec: 0.25, leadSec: 0 }),
+    ).toBe(true);
+    expect(
+      findPlaybackSegmentIndex(segments, 5.25, 0, { displayOffsetSec: 0.25, leadSec: 0 }),
+    ).toBe(1);
+    expect(
+      findPlaybackSegmentIndex(segments, 4.75, 0, { displayOffsetSec: -0.25, leadSec: 0 }),
+    ).toBe(1);
+  });
+
   it("handles empty transcripts", () => {
     expect(getPlaybackPhrasePair([], 2)).toEqual({
       activeIndex: -1,

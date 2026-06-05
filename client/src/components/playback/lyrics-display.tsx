@@ -3,6 +3,7 @@ import {
   findPlaybackSegmentIndex,
   getPlaybackPhrasePair,
   isPlaybackSegmentVisible,
+  type LyricDisplayTiming,
 } from "@/lib/playback/lyric-phrases";
 import type { Segment, Word } from "@/types/Transcript";
 import { memo, useEffect, useRef, useState } from "react";
@@ -134,15 +135,16 @@ const lineClass = (hasReading: boolean, base: string, gap: string) =>
 
 interface LyricsDisplayProps {
   segments: Segment[];
+  timing?: LyricDisplayTiming;
 }
 
-function LyricsDisplayImpl({ segments }: LyricsDisplayProps) {
+function LyricsDisplayImpl({ segments, timing }: LyricsDisplayProps) {
   const { isPlaying, paused } = usePlaybackTransportState();
   const { subscribe, getCurrentTime } = usePlaybackTransportActions();
   const animate = isPlaying && !paused;
 
   const [segIdx, setSegIdx] = useState(() =>
-    segments.length === 0 ? 0 : findPlaybackSegmentIndex(segments, getCurrentTime(), 0),
+    segments.length === 0 ? 0 : findPlaybackSegmentIndex(segments, getCurrentTime(), 0, timing),
   );
 
   const hintRef = useRef(0);
@@ -158,7 +160,7 @@ function LyricsDisplayImpl({ segments }: LyricsDisplayProps) {
     let cancelled = false;
 
     const apply = (time: number) => {
-      const pair = getPlaybackPhrasePair(segments, time, hintRef.current);
+      const pair = getPlaybackPhrasePair(segments, time, hintRef.current, timing);
       const idx = pair.activeIndex;
       if (idx !== hintRef.current) {
         hintRef.current = idx;
@@ -167,7 +169,7 @@ function LyricsDisplayImpl({ segments }: LyricsDisplayProps) {
 
       const seg = pair.active;
       if (!seg) return;
-      const isActive = isPlaybackSegmentVisible(seg, time);
+      const isActive = isPlaybackSegmentVisible(seg, time, timing);
 
       const gapBefore = idx === 0 ? seg.start : seg.start - segments[idx - 1].end;
       const timeUntil = seg.start - time;
@@ -200,7 +202,7 @@ function LyricsDisplayImpl({ segments }: LyricsDisplayProps) {
 
     apply(getCurrentTime());
     return subscribe((time) => apply(time));
-  }, [segments, subscribe, getCurrentTime, animate]);
+  }, [segments, subscribe, getCurrentTime, animate, timing]);
 
   if (segments.length === 0) {
     return null;

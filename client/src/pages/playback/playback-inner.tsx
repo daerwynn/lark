@@ -30,6 +30,7 @@ import {
   usePracticeLoop,
 } from "@/hooks/playback";
 import { clampPlaybackRate } from "@/lib/playback/playback-rate";
+import { playbackKeybindingsFromConfig } from "@/lib/playback/keybindings";
 import {
   clampPlaybackTime,
   isSeekOutsideLoop,
@@ -70,8 +71,25 @@ function PlaybackLayout({ song, config }: PlaybackLayoutProps) {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const persistConfig = usePlaybackConfigPersist(config);
   const practiceSettings = useMemo(() => practiceSettingsFromConfig(config), [config]);
+  const keybindings = useMemo(() => playbackKeybindingsFromConfig(config), [config]);
   const isUsdx = song.transcript_source === "Usdx" || song.usdx != null;
-  const practiceLoop = usePracticeLoop({ enabled: practiceMode, segments, series });
+  const lyricDisplayTiming = useMemo(
+    () =>
+      isUsdx
+        ? {
+            displayOffsetSec: practiceSettings.usdxLyricDisplayOffsetMs / 1000,
+            leadSec: 0,
+          }
+        : undefined,
+    [isUsdx, practiceSettings.usdxLyricDisplayOffsetMs],
+  );
+  const practiceLoop = usePracticeLoop({
+    enabled: practiceMode,
+    segments,
+    series,
+    lyricDisplayOffsetSec: lyricDisplayTiming?.displayOffsetSec,
+    lyricLeadSec: lyricDisplayTiming?.leadSec,
+  });
   const activeLoop = practiceLoop.activeLoop;
   const clearPracticeLoop = practiceLoop.handleClearLoop;
 
@@ -164,6 +182,7 @@ function PlaybackLayout({ song, config }: PlaybackLayoutProps) {
             onToggleUsdxTiming={handleToggleUsdxTiming}
             settingsOpen={settingsOpen}
             onOpenSettings={handleOpenSettings}
+            keybindings={keybindings}
           />
           {practiceMode ? (
             <PracticeOverlay
@@ -171,11 +190,14 @@ function PlaybackLayout({ song, config }: PlaybackLayoutProps) {
               series={series}
               loop={practiceLoop}
               settings={practiceSettings}
+              keybindings={keybindings}
+              lyricDisplayOffsetSec={lyricDisplayTiming?.displayOffsetSec}
+              lyricLeadSec={lyricDisplayTiming?.leadSec}
             />
           ) : (
             <>
               <PitchGraph series={series} />
-              <LyricsDisplay segments={segments} />
+              <LyricsDisplay segments={segments} timing={lyricDisplayTiming} />
             </>
           )}
           {isUsdx && (
@@ -200,6 +222,7 @@ function PlaybackLayout({ song, config }: PlaybackLayoutProps) {
             playbackRate={playbackRate}
             pitchPreservingPlaybackSupported={pitchPreservingPlaybackSupported}
             onPlaybackRateRequested={handlePlaybackRateRequested}
+            keybindings={keybindings}
           />
         </>
       )}

@@ -16,7 +16,7 @@
         "title": "Nightingale",
         "width": 1280,
         "height": 720,
-        "decorations": false,
+        "decorations": true,
         "visible": false
       }
     ],

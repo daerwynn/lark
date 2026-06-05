@@ -22,6 +22,8 @@ interface UsePracticeLoopOptions {
   enabled: boolean;
   segments: Segment[];
   series: PitchSeries;
+  lyricDisplayOffsetSec?: number;
+  lyricLeadSec?: number;
 }
 
 export interface PracticeLoopControls {
@@ -43,6 +45,8 @@ export function usePracticeLoop({
   enabled,
   segments,
   series,
+  lyricDisplayOffsetSec = 0,
+  lyricLeadSec,
 }: UsePracticeLoopOptions): PracticeLoopControls {
   const { duration, isPlaying } = usePlaybackTransportState();
   const { getCurrentTime, seek, subscribe } = usePlaybackTransportActions();
@@ -106,11 +110,25 @@ export function usePracticeLoop({
   const handleLoopCurrentPhrase = useCallback(() => {
     if (!enabled) return;
 
-    const range = createPhraseLoopRange(segments, getCurrentTime(), duration);
+    const range = createPhraseLoopRange(
+      segments,
+      getCurrentTime(),
+      duration,
+      lyricDisplayOffsetSec,
+      lyricLeadSec,
+    );
     setManualStart(null);
     setManualEnd(null);
     activateLoop(range);
-  }, [activateLoop, duration, enabled, getCurrentTime, segments]);
+  }, [
+    activateLoop,
+    duration,
+    enabled,
+    getCurrentTime,
+    lyricDisplayOffsetSec,
+    lyricLeadSec,
+    segments,
+  ]);
 
   const handleSetLoopStart = useCallback(() => {
     if (!enabled) return;
