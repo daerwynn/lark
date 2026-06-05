@@ -60,6 +60,7 @@ export function useMicPitch(enabled: boolean) {
   const sampleRateRef = useRef(0);
   const sampleVersionRef = useRef(0);
   const frameIdRef = useRef(0);
+  const invalidFrameCountRef = useRef(0);
 
   if (ringRef.current === null) {
     ringRef.current = new SampleRing(RING_CAPACITY);
@@ -79,6 +80,7 @@ export function useMicPitch(enabled: boolean) {
       sampleRateRef.current = 0;
       sampleVersionRef.current = 0;
       frameIdRef.current = 0;
+      invalidFrameCountRef.current = 0;
       setLatestAnalysisFrame(null);
       return;
     }
@@ -103,17 +105,18 @@ export function useMicPitch(enabled: boolean) {
         detectedAtMs: performance.now(),
       };
       setLatestAnalysisFrame(timedAnalysis);
-      setLatestPitchFrame(
-        analysis.voiced && analysis.hz != null && analysis.clarity != null
-          ? {
-              hz: analysis.hz,
-              clarity: analysis.clarity,
-              rms: analysis.rms,
-              id: timedAnalysis.id,
-              detectedAtMs: timedAnalysis.detectedAtMs,
-            }
-          : null,
-      );
+      if (analysis.voiced && analysis.hz != null && analysis.clarity != null) {
+        invalidFrameCountRef.current = 0;
+        setLatestPitchFrame({
+          hz: analysis.hz,
+          clarity: analysis.clarity,
+          rms: analysis.rms,
+          id: timedAnalysis.id,
+          detectedAtMs: timedAnalysis.detectedAtMs,
+        });
+      } else {
+        invalidFrameCountRef.current += 1;
+      }
     };
 
     const id = setInterval(tick, PITCH_TICK_MS);
@@ -124,6 +127,7 @@ export function useMicPitch(enabled: boolean) {
       setLatestAnalysisFrame(null);
       setActive(false);
       analyzedSampleVersion = 0;
+      invalidFrameCountRef.current = 0;
     };
   }, [enabled]);
 
@@ -131,6 +135,7 @@ export function useMicPitch(enabled: boolean) {
     latestPitch: latestPitchFrame?.hz ?? null,
     latestPitchFrame,
     latestAnalysisFrame,
+    invalidFrameCount: invalidFrameCountRef.current,
     active,
     error: null as string | null,
   };

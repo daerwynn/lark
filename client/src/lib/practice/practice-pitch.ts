@@ -3,6 +3,7 @@ import { freqToSemitone, snapToRefOctave } from "@/lib/pitch/state";
 import {
   buildLiveVoiceTracePoint,
   computeRollingBaselineOctaveOffset,
+  LiveVoiceDisplayStabilizer,
   type LiveVoiceTracePoint,
 } from "@/lib/pitch/live-voice-trace";
 import type { Segment, Word } from "@/types/Transcript";
@@ -234,7 +235,7 @@ export function computeChartPitchCalibration(
     const refHz = series.refPitches[i];
     if (!isFiniteNumber(time) || !isFiniteNumber(refHz) || refHz <= 0) continue;
 
-    const note = expectedNoteAtTime(chartNotes, time, 0);
+    const note = expectedNoteAtTime(chartNotes, time, CHART_PITCH_MATCH_TOLERANCE_SEC);
     if (!note) continue;
 
     offsets.push(freqToSemitone(refHz) - note.pitch);
@@ -359,7 +360,7 @@ export function buildRawUserTrace(
   calibration: PracticePitchCalibration = computeChartPitchCalibration(series, chartNotes),
 ): PracticeTracePoint[] {
   return buildTraceFromPitches(
-    series.rawUserPitches ?? [],
+    series.rawMicHz ?? series.rawUserPitches ?? [],
     series,
     chartNotes,
     calibration,
@@ -376,22 +377,27 @@ export function buildLiveVoiceTrace(
   let pendingBreak = false;
   let baselineOctaveOffset: number | null = null;
   const hasChartNotes = chartNotes.length > 0;
+  const displayStabilizer = new LiveVoiceDisplayStabilizer();
 
   for (let index = 0; index < series.times.length; index++) {
     pendingBreak ||= series.traceBreaks?.[index] ?? false;
     const rawHz = series.rawMicHz?.[index] ?? null;
     const voiced = series.rawMicVoiced?.[index] ?? rawHz != null;
+    const time = series.times[index];
     if (!voiced || rawHz == null) {
-      pendingBreak = true;
+      if (displayStabilizer.noteMissing(time).traceBreak) {
+        pendingBreak = true;
+      }
       continue;
     }
 
-    const time = series.times[index];
     const note = expectedNoteAtTime(chartNotes, time, 0);
     const refHz = series.refPitches[index];
     const refMidi = isFiniteNumber(refHz) && refHz > 0 ? freqToSemitone(refHz) : null;
     if (!note && (hasChartNotes || refMidi == null)) {
-      pendingBreak = true;
+      if (displayStabilizer.noteMissing(time).traceBreak) {
+        pendingBreak = true;
+      }
       continue;
     }
 
@@ -407,11 +413,19 @@ export function buildLiveVoiceTrace(
       traceBreak: pendingBreak,
     });
     if (!point) {
-      pendingBreak = true;
+      if (displayStabilizer.noteMissing(time).traceBreak) {
+        pendingBreak = true;
+      }
       continue;
     }
 
-    points.push(point);
+    const stablePoint = displayStabilizer.stabilize(point);
+    if (!stablePoint) {
+      continue;
+    }
+
+    stablePoint.traceBreak ||= pendingBreak;
+    points.push(stablePoint);
     baselineOctaveOffset = computeRollingBaselineOctaveOffset(points, baselineOctaveOffset);
     const updatedPoint = points[points.length - 1];
     if (updatedPoint && baselineOctaveOffset != null) {

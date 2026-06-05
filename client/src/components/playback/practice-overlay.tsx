@@ -597,6 +597,17 @@ function PracticeOverlayImpl({
   const status = isPlaying ? "Live" : "Paused";
   const attempt = loop.lastAttemptScore == null ? "--" : `${loop.lastAttemptScore}%`;
   const canClear = loop.activeLoop != null || loop.manualStart != null || loop.manualEnd != null;
+  const latestLiveAge =
+    model.latestLiveVoicePoint == null
+      ? Number.POSITIVE_INFINITY
+      : currentTime - model.latestLiveVoicePoint.time;
+  const micStatus = !micCaptureActive
+    ? "Mic: off"
+    : !micPitchActive
+      ? "Mic: listening"
+      : latestLiveAge <= 0.35
+        ? "Mic: pitch detected"
+        : "Mic: no pitch";
 
   return (
     <div className="pointer-events-none absolute inset-0 z-10 flex flex-col bg-black/62 px-8 pt-24 pb-40 text-white">
@@ -698,7 +709,7 @@ function PracticeOverlayImpl({
         )}
         <div className="mt-3 flex justify-center gap-6 text-lg text-white/60">
           <SourceLabel source={model.expectedSource} />
-          <span>Live trace: microphone</span>
+          <span>{micStatus}</span>
           {model.expectedSource === "chart" && model.pitchCalibration.midiOffset != null && (
             <span>Pitch lock: guide vocal</span>
           )}
@@ -762,6 +773,10 @@ function PracticeOverlayImpl({
           <div>
             frame id {micDebug.frameId ?? "--"} age{" "}
             {micDebug.frameAgeMs == null ? "--" : `${Math.round(micDebug.frameAgeMs)}ms`}
+          </div>
+          <div>
+            frame song time{" "}
+            {micDebug.frameSongTime == null ? "--" : formatPlaybackTime(micDebug.frameSongTime)}
           </div>
           <div>
             raw{" "}

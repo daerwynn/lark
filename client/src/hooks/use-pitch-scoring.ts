@@ -51,6 +51,7 @@ export interface PitchScoringDebug {
   frameAgeMs: number | null;
   frameId: number | null;
   playbackTime: number | null;
+  frameSongTime: number | null;
   voiced: boolean;
   reacquiring: boolean;
   comparisonAvailable: boolean;
@@ -81,6 +82,7 @@ const EMPTY_DEBUG: PitchScoringDebug = {
   frameAgeMs: null,
   frameId: null,
   playbackTime: null,
+  frameSongTime: null,
   voiced: false,
   reacquiring: false,
   comparisonAvailable: false,
@@ -212,6 +214,7 @@ export function usePitchScoring(
           frameAgeMs: decision.ageMs,
           frameId: frame?.id ?? null,
           playbackTime: t,
+          frameSongTime: null,
           voiced: stabilizerRef.current.status().voiced,
           reacquiring: stabilizerRef.current.status().reacquiring,
           traceBreakInserted: decision.dropReason !== "already-processed",
@@ -246,7 +249,6 @@ export function usePitchScoring(
 
       if (!frame.voiced || !rawDetectorFrame) {
         stabilizerRef.current.stabilize(null);
-        bufferRef.current.markTraceBreak();
         bufferRef.current.tryPush(null, null, 0, micSongTime, null, frame.id, {
           hz: null,
           midi: null,
@@ -265,12 +267,13 @@ export function usePitchScoring(
           frameAgeMs: decision.ageMs,
           frameId: frame.id,
           playbackTime: t,
+          frameSongTime: micSongTime,
           voiced: false,
           reacquiring: stabilizerRef.current.status().reacquiring,
           comparisonAvailable: false,
           displayed: false,
           scored: false,
-          traceBreakInserted: true,
+          traceBreakInserted: false,
           dropReason: "unvoiced",
         });
         return;
@@ -305,7 +308,6 @@ export function usePitchScoring(
 
       if (!hasExpectedPitch) {
         stabilizerRef.current.stabilize(null);
-        bufferRef.current.markTraceBreak();
         bufferRef.current.tryPush(null, null, 0, micSongTime, rawMic?.hz ?? null, frame.id, {
           hz: rawMicHz,
           midi: rawMicMidi,
@@ -324,12 +326,13 @@ export function usePitchScoring(
           frameAgeMs: decision.ageMs,
           frameId: frame.id,
           playbackTime: t,
+          frameSongTime: micSongTime,
           voiced: stabilizerRef.current.status().voiced,
           reacquiring: stabilizerRef.current.status().reacquiring,
           comparisonAvailable: false,
           displayed: false,
           scored: false,
-          traceBreakInserted: true,
+          traceBreakInserted: false,
           dropReason: "no-expected-pitch",
         });
         return;
@@ -391,6 +394,7 @@ export function usePitchScoring(
         frameAgeMs: decision.ageMs,
         frameId: frame.id,
         playbackTime: t,
+        frameSongTime: micSongTime,
         voiced: stabilizerStatus.voiced,
         reacquiring: stabilizerStatus.reacquiring,
         comparisonAvailable: comparisonHz != null,

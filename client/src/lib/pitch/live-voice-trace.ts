@@ -1,14 +1,18 @@
 import type { PracticePitchFeedbackSettings } from "@/lib/practice/practice-settings";
-import { freqToSemitone } from "./state";
+import { freqToSemitone, semitoneToFreq } from "./state";
 
 export type LiveVoiceAccuracy = "green" | "yellow" | "red" | "none";
 export type LiveVoiceRegister = "baseline" | "higher" | "lower" | "extreme";
 
 export interface LiveVoiceTracePoint {
   time: number;
+  songTimeSec: number;
   rawHz: number;
   rawMidi: number;
+  rawDisplayMidi: number;
   displayMidi: number;
+  stableHz: number | null;
+  stableMidi: number | null;
   expectedMidi: number | null;
   centsFromExpected: number | null;
   absoluteOctaveOffsetFromExpected: number | null;
@@ -18,7 +22,23 @@ export interface LiveVoiceTracePoint {
   rms: number | null;
   voiced: true;
   traceBreak: boolean;
+  accepted: boolean;
+  dropReason?: string;
   pitch: number;
+}
+
+export interface LivePitchFrame {
+  id: number;
+  detectedAtMs: number;
+  songTimeSec: number | null;
+  rawHz: number;
+  rawMidi: number;
+  stableHz: number | null;
+  stableMidi: number | null;
+  clarity: number;
+  rms: number;
+  accepted: boolean;
+  dropReason?: string;
 }
 
 export interface LiveVoiceNormalization {
@@ -50,6 +70,12 @@ export interface LiveVoiceTraceStyle {
 export const LIVE_VOICE_BASELINE_SAMPLE_COUNT = 45;
 export const LIVE_VOICE_BASELINE_MAX_CENTS = 150;
 export const LIVE_VOICE_MAX_CONNECTION_GAP_SEC = 0.15;
+export const LIVE_VOICE_MISSING_HOLD_SEC = 0.25;
+export const LIVE_VOICE_JUMP_THRESHOLD_ST = 4;
+export const LIVE_VOICE_CONFIRMED_JUMP_FRAMES = 2;
+export const LIVE_VOICE_JUMP_TOLERANCE_ST = 1.5;
+export const LIVE_VOICE_EMA_ALPHA = 0.35;
+export const LIVE_VOICE_MEDIAN_WINDOW = 5;
 
 function isFinitePositive(value: number | null | undefined): value is number {
   return typeof value === "number" && Number.isFinite(value) && value > 0;
@@ -102,9 +128,13 @@ export function buildLiveVoiceTracePoint({
   if (expectedMidi == null || !Number.isFinite(expectedMidi)) {
     return {
       time,
+      songTimeSec: time,
       rawHz,
       rawMidi,
+      rawDisplayMidi: rawMidi,
       displayMidi: rawMidi,
+      stableHz: semitoneToFreq(rawMidi),
+      stableMidi: rawMidi,
       expectedMidi: null,
       centsFromExpected: null,
       absoluteOctaveOffsetFromExpected: null,
@@ -114,6 +144,7 @@ export function buildLiveVoiceTracePoint({
       rms,
       voiced: true,
       traceBreak,
+      accepted: true,
       pitch: rawMidi,
     };
   }
@@ -126,9 +157,13 @@ export function buildLiveVoiceTracePoint({
 
   return {
     time,
+    songTimeSec: time,
     rawHz,
     rawMidi,
+    rawDisplayMidi: normalized.displayMidi,
     displayMidi: normalized.displayMidi,
+    stableHz: semitoneToFreq(normalized.displayMidi),
+    stableMidi: normalized.displayMidi,
     expectedMidi,
     centsFromExpected: normalized.centsFromExpected,
     absoluteOctaveOffsetFromExpected: normalized.absoluteOctaveOffsetFromExpected,
@@ -138,8 +173,126 @@ export function buildLiveVoiceTracePoint({
     rms,
     voiced: true,
     traceBreak,
+    accepted: true,
     pitch: normalized.displayMidi + laneShift,
   };
+}
+
+function median(values: number[]): number {
+  const sorted = [...values].sort((a, b) => a - b);
+  const middle = Math.floor(sorted.length / 2);
+  if (sorted.length % 2 === 1) return sorted[middle];
+  return (sorted[middle - 1] + sorted[middle]) / 2;
+}
+
+export class LiveVoiceDisplayStabilizer {
+  private stableMidi: number | null = null;
+  private emaMidi: number | null = null;
+  private pendingJumpMidi: number | null = null;
+  private pendingJumpCount = 0;
+  private recentMidi: number[] = [];
+  private lastAcceptedTime: number | null = null;
+  private missingSince: number | null = null;
+
+  constructor(
+    private readonly config = {
+      medianWindow: LIVE_VOICE_MEDIAN_WINDOW,
+      emaAlpha: LIVE_VOICE_EMA_ALPHA,
+      jumpThresholdSemitones: LIVE_VOICE_JUMP_THRESHOLD_ST,
+      confirmedJumpFrames: LIVE_VOICE_CONFIRMED_JUMP_FRAMES,
+      jumpToleranceSemitones: LIVE_VOICE_JUMP_TOLERANCE_ST,
+      missingHoldSec: LIVE_VOICE_MISSING_HOLD_SEC,
+    },
+  ) {}
+
+  reset(): void {
+    this.stableMidi = null;
+    this.emaMidi = null;
+    this.pendingJumpMidi = null;
+    this.pendingJumpCount = 0;
+    this.recentMidi = [];
+    this.lastAcceptedTime = null;
+    this.missingSince = null;
+  }
+
+  noteMissing(time: number): { traceBreak: boolean; held: boolean } {
+    if (!Number.isFinite(time)) {
+      return { traceBreak: true, held: false };
+    }
+
+    if (this.lastAcceptedTime == null) {
+      return { traceBreak: true, held: false };
+    }
+
+    this.missingSince ??= time;
+    const missingFor = time - this.missingSince;
+    if (missingFor <= this.config.missingHoldSec) {
+      return { traceBreak: false, held: true };
+    }
+
+    this.reset();
+    return { traceBreak: true, held: false };
+  }
+
+  stabilize(point: LiveVoiceTracePoint): LiveVoiceTracePoint | null {
+    this.missingSince = null;
+    const inputMidi = point.rawDisplayMidi;
+    if (!Number.isFinite(inputMidi)) {
+      return null;
+    }
+
+    if (this.stableMidi != null) {
+      const jump = Math.abs(inputMidi - this.stableMidi);
+      if (jump > this.config.jumpThresholdSemitones) {
+        if (
+          this.pendingJumpMidi != null &&
+          Math.abs(inputMidi - this.pendingJumpMidi) <= this.config.jumpToleranceSemitones
+        ) {
+          this.pendingJumpCount += 1;
+        } else {
+          this.pendingJumpMidi = inputMidi;
+          this.pendingJumpCount = 1;
+        }
+
+        if (this.pendingJumpCount < this.config.confirmedJumpFrames) {
+          return null;
+        }
+
+        this.recentMidi = [];
+        this.emaMidi = null;
+      }
+    }
+
+    this.pendingJumpMidi = null;
+    this.pendingJumpCount = 0;
+    this.recentMidi.push(inputMidi);
+    while (this.recentMidi.length > this.config.medianWindow) {
+      this.recentMidi.shift();
+    }
+
+    const medianMidi = median(this.recentMidi);
+    const stableMidi =
+      this.emaMidi == null
+        ? medianMidi
+        : this.emaMidi * this.config.emaAlpha + medianMidi * (1 - this.config.emaAlpha);
+    this.emaMidi = stableMidi;
+    this.stableMidi = stableMidi;
+    this.lastAcceptedTime = point.time;
+
+    const laneShift = point.pitch - point.rawDisplayMidi;
+    const centsFromExpected =
+      point.expectedMidi == null ? null : Math.round((stableMidi - point.expectedMidi) * 100);
+
+    return {
+      ...point,
+      displayMidi: stableMidi,
+      stableMidi,
+      stableHz: semitoneToFreq(stableMidi),
+      centsFromExpected,
+      pitch: stableMidi + laneShift,
+      accepted: true,
+    };
+  }
 }
 
 export function computeRollingBaselineOctaveOffset(

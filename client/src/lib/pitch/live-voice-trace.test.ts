@@ -5,6 +5,7 @@ import { semitoneToFreq } from "./state";
 import {
   buildLiveVoiceTracePoint,
   computeRollingBaselineOctaveOffset,
+  LiveVoiceDisplayStabilizer,
   normalizeMicPitchForExpected,
   shouldConnectLiveVoiceTracePoints,
   styleLiveVoiceTracePoint,
@@ -131,5 +132,90 @@ describe("live voice trace helpers", () => {
 
     if (!first || !second) throw new Error("expected points");
     expect(shouldConnectLiveVoiceTracePoints(first, second)).toBe(false);
+  });
+
+  it("display stabilizer holds through one missing frame", () => {
+    const stabilizer = new LiveVoiceDisplayStabilizer();
+    const first = buildLiveVoiceTracePoint({
+      time: 1,
+      rawHz: semitoneToFreq(A4),
+      expectedMidi: A4,
+    });
+
+    if (!first) throw new Error("expected point");
+    expect(stabilizer.stabilize(first)?.displayMidi).toBeCloseTo(A4);
+    expect(stabilizer.noteMissing(1.03)).toEqual({ traceBreak: false, held: true });
+    const second = buildLiveVoiceTracePoint({
+      time: 1.06,
+      rawHz: semitoneToFreq(A4),
+      expectedMidi: A4,
+    });
+
+    if (!second) throw new Error("expected point");
+    const accepted = stabilizer.stabilize(second);
+    expect(accepted?.traceBreak).toBe(false);
+    expect(accepted?.displayMidi).toBeCloseTo(A4);
+  });
+
+  it("display stabilizer breaks after sustained missing pitch", () => {
+    const stabilizer = new LiveVoiceDisplayStabilizer();
+    const first = buildLiveVoiceTracePoint({
+      time: 1,
+      rawHz: semitoneToFreq(A4),
+      expectedMidi: A4,
+    });
+
+    if (!first) throw new Error("expected point");
+    expect(stabilizer.stabilize(first)).not.toBeNull();
+    expect(stabilizer.noteMissing(1.03).traceBreak).toBe(false);
+    expect(stabilizer.noteMissing(1.31).traceBreak).toBe(true);
+  });
+
+  it("display stabilizer rejects one-frame large jumps", () => {
+    const stabilizer = new LiveVoiceDisplayStabilizer();
+    const first = buildLiveVoiceTracePoint({
+      time: 1,
+      rawHz: semitoneToFreq(A4),
+      expectedMidi: A4,
+    });
+    const spike = buildLiveVoiceTracePoint({
+      time: 1.03,
+      rawHz: semitoneToFreq(75),
+      expectedMidi: A4,
+    });
+    const recovered = buildLiveVoiceTracePoint({
+      time: 1.06,
+      rawHz: semitoneToFreq(A4),
+      expectedMidi: A4,
+    });
+
+    if (!first || !spike || !recovered) throw new Error("expected points");
+    expect(stabilizer.stabilize(first)).not.toBeNull();
+    expect(stabilizer.stabilize(spike)).toBeNull();
+    expect(stabilizer.stabilize(recovered)?.displayMidi).toBeCloseTo(A4);
+  });
+
+  it("display stabilizer accepts confirmed large jumps", () => {
+    const stabilizer = new LiveVoiceDisplayStabilizer();
+    const first = buildLiveVoiceTracePoint({
+      time: 1,
+      rawHz: semitoneToFreq(A4),
+      expectedMidi: A4,
+    });
+    const jumpA = buildLiveVoiceTracePoint({
+      time: 1.03,
+      rawHz: semitoneToFreq(75),
+      expectedMidi: A4,
+    });
+    const jumpB = buildLiveVoiceTracePoint({
+      time: 1.06,
+      rawHz: semitoneToFreq(75),
+      expectedMidi: A4,
+    });
+
+    if (!first || !jumpA || !jumpB) throw new Error("expected points");
+    expect(stabilizer.stabilize(first)).not.toBeNull();
+    expect(stabilizer.stabilize(jumpA)).toBeNull();
+    expect(stabilizer.stabilize(jumpB)?.displayMidi).toBeGreaterThan(A4 + 4);
   });
 });

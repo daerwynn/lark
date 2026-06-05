@@ -337,6 +337,63 @@ describe("practice pitch adapter", () => {
     expect(model.liveVoiceTrace).toHaveLength(0);
   });
 
+  it("keeps live voice trace connected across brief invalid frames", () => {
+    const model = buildPracticeLaneModel({
+      segments: [
+        {
+          text: "relative",
+          start: 1,
+          end: 2,
+          words: [{ word: "A", start: 1, end: 2, pitch: 69 }],
+        },
+      ],
+      series: {
+        times: [1, 1.03, 1.06],
+        refPitches: [semitoneToFreq(69), semitoneToFreq(69), semitoneToFreq(69)],
+        userPitches: [semitoneToFreq(69), null, semitoneToFreq(69)],
+        rawMicHz: [semitoneToFreq(69), null, semitoneToFreq(69)],
+        rawMicMidi: [69, null, 69],
+        rawMicClarity: [0.9, null, 0.9],
+        rawMicRms: [0.05, 0.001, 0.05],
+        rawMicVoiced: [true, false, true],
+        similarities: [1, 0, 1],
+      },
+      currentTime: 1.06,
+    });
+
+    expect(model.liveVoiceTrace).toHaveLength(2);
+    expect(model.liveVoiceTrace[1].traceBreak).toBe(false);
+  });
+
+  it("rejects raw one-frame outliers from the main live voice trace", () => {
+    const model = buildPracticeLaneModel({
+      segments: [
+        {
+          text: "relative",
+          start: 1,
+          end: 2,
+          words: [{ word: "A", start: 1, end: 2, pitch: 69 }],
+        },
+      ],
+      series: {
+        times: [1, 1.03, 1.06],
+        refPitches: [semitoneToFreq(69), semitoneToFreq(69), semitoneToFreq(69)],
+        userPitches: [semitoneToFreq(69), semitoneToFreq(75), semitoneToFreq(69)],
+        rawMicHz: [semitoneToFreq(69), semitoneToFreq(75), semitoneToFreq(69)],
+        rawMicMidi: [69, 75, 69],
+        rawMicClarity: [0.9, 0.9, 0.9],
+        rawMicRms: [0.05, 0.05, 0.05],
+        rawMicVoiced: [true, true, true],
+        similarities: [1, 0, 1],
+      },
+      currentTime: 1.06,
+    });
+
+    expect(model.rawUserTrace).toHaveLength(3);
+    expect(model.liveVoiceTrace).toHaveLength(2);
+    expect(model.liveVoiceTrace.map((point) => Math.round(point.displayMidi))).toEqual([69, 69]);
+  });
+
   it("carries trace breaks across skipped null pitch samples", () => {
     const model = buildPracticeLaneModel({
       segments: [
