@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { semitoneToFreq } from "@/lib/pitch/state";
+import { buildPracticeLaneModel } from "@/lib/practice/practice-pitch";
 
 import {
   calibrationPitchSeriesFromFrames,
@@ -55,5 +56,25 @@ describe("vocal calibration practice adapter", () => {
     expect(series.userPitches[0]).toBe(detectedHz);
     expect(series.similarities[0]).toBeGreaterThan(0);
     expect(series.similarities[0]).toBeLessThan(1);
+  });
+
+  it("renders expected calibration bars before any mic frames arrive", () => {
+    const sequence = buildCalibrationSequence("medium");
+    const segments = calibrationSegmentsFromSequence(sequence);
+    const model = buildPracticeLaneModel({
+      segments,
+      series: { refPitches: [], userPitches: [], similarities: [], times: [] },
+      currentTime: 0,
+    });
+
+    expect(model.expectedSource).toBe("chart");
+    expect(model.expectedNotes).toHaveLength(
+      CALIBRATION_PASS_TRANSPOSITIONS.length * CALIBRATION_SCALE_OFFSETS.length,
+    );
+    expect(model.expectedNotes[0]).toMatchObject({
+      start: 0,
+      end: CALIBRATION_NOTE_DURATION_SEC,
+      label: "DO",
+    });
   });
 });

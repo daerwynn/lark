@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { shouldResetPitchHistory } from "./state";
+import { PitchStateBuffer, shouldResetPitchHistory } from "./state";
 
 describe("pitch state helpers", () => {
   it("resets pitch history on explicit playback discontinuities", () => {
@@ -22,5 +22,15 @@ describe("pitch state helpers", () => {
         isDiscontinuity: false,
       }),
     ).toBe(false);
+  });
+
+  it("marks the next pushed pitch point as a trace break", () => {
+    const buffer = new PitchStateBuffer();
+
+    buffer.tryPush(null, 220, 0, 0.1);
+    buffer.markTraceBreak();
+    buffer.tryPush(null, 221, 0, 0.2);
+
+    expect(buffer.snapshot().traceBreaks).toEqual([false, true]);
   });
 });

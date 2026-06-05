@@ -48,6 +48,9 @@ export function calibrationPitchSeriesFromFrames(
 ): PitchSeries {
   const refPitches: (number | null)[] = [];
   const userPitches: (number | null)[] = [];
+  const rawUserPitches: (number | null)[] = [];
+  const traceBreaks: boolean[] = [];
+  const micFrameIds: (number | null)[] = [];
   const similarities: number[] = [];
   const times: number[] = [];
 
@@ -58,9 +61,12 @@ export function calibrationPitchSeriesFromFrames(
 
     refPitches.push(refHz);
     userPitches.push(userHz);
+    rawUserPitches.push(userHz);
+    traceBreaks.push(false);
+    micFrameIds.push(null);
     similarities.push(refHz != null && userHz != null ? pitchSimilarity(refHz, userHz) : 0);
     times.push(frame.timeSec);
   }
 
-  return { refPitches, userPitches, similarities, times };
+  return { refPitches, userPitches, rawUserPitches, traceBreaks, micFrameIds, similarities, times };
 }

@@ -48,6 +48,7 @@ describe("live pitch stabilizer", () => {
     expect(stabilizer.stabilize(frame(220))).toBeCloseTo(220, 4);
     expect(stabilizer.stabilize(null)).toBeNull();
     expect(stabilizer.stabilize(null)).toBeNull();
+    expect(stabilizer.stabilize(frame(880))).toBeNull();
     expect(stabilizer.stabilize(frame(880))).toBeCloseTo(880, 4);
   });
 
@@ -58,5 +59,27 @@ describe("live pitch stabilizer", () => {
 
     expect(stabilizer.stabilize(frame(target), { expectedHz: target })).toBeCloseTo(target, 4);
     expect(stabilizer.stabilize(frame(nonOctaveSpike), { expectedHz: target })).toBeNull();
+  });
+
+  it("requires consistent frames after silence before reacquiring", () => {
+    const stabilizer = new LivePitchStabilizer({ missingFrameResetCount: 1 });
+
+    expect(stabilizer.stabilize(frame(220))).toBeCloseTo(220, 4);
+    expect(stabilizer.stabilize(null)).toBeNull();
+    expect(stabilizer.status().reacquiring).toBe(true);
+    expect(stabilizer.stabilize(frame(330))).toBeNull();
+    expect(stabilizer.status().voiced).toBe(false);
+    expect(stabilizer.stabilize(frame(330))).toBeCloseTo(330, 4);
+    expect(stabilizer.status().voiced).toBe(true);
+  });
+
+  it("uses stricter voicing gates while reacquiring", () => {
+    const stabilizer = new LivePitchStabilizer({ missingFrameResetCount: 1 });
+
+    expect(stabilizer.stabilize(frame(220))).toBeCloseTo(220, 4);
+    expect(stabilizer.stabilize(null)).toBeNull();
+    expect(stabilizer.stabilize(frame(330, 0.95, 0.003))).toBeNull();
+    expect(stabilizer.stabilize(frame(330))).toBeNull();
+    expect(stabilizer.stabilize(frame(330))).toBeCloseTo(330, 4);
   });
 });

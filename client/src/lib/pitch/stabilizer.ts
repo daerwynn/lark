@@ -1,4 +1,5 @@
 import type { PitchDetectionFrame } from "./detect";
+import { MIC_REACQUIRE_CLARITY_THRESHOLD, MIC_REACQUIRE_RMS_GATE } from "./constants";
 import { freqToSemitone, semitoneToFreq, snapToRefOctave } from "./state";
 
 export interface LivePitchStabilizerOptions {
@@ -12,6 +13,15 @@ export interface LivePitchStabilizerConfig {
   confirmedJumpFrames: number;
   pendingToleranceSemitones: number;
   missingFrameResetCount: number;
+  reacquireFrames: number;
+  reacquireToleranceSemitones: number;
+  reacquireRmsGate: number;
+  reacquireClarityThreshold: number;
+}
+
+export interface LivePitchStabilizerStatus {
+  voiced: boolean;
+  reacquiring: boolean;
 }
 
 const DEFAULT_CONFIG: LivePitchStabilizerConfig = {
@@ -20,6 +30,10 @@ const DEFAULT_CONFIG: LivePitchStabilizerConfig = {
   confirmedJumpFrames: 2,
   pendingToleranceSemitones: 1.5,
   missingFrameResetCount: 8,
+  reacquireFrames: 2,
+  reacquireToleranceSemitones: 1.5,
+  reacquireRmsGate: MIC_REACQUIRE_RMS_GATE,
+  reacquireClarityThreshold: MIC_REACQUIRE_CLARITY_THRESHOLD,
 };
 
 function isFinitePositive(value: number | null | undefined): value is number {
@@ -45,6 +59,10 @@ export class LivePitchStabilizer {
   private pendingJumpSemi: number | null = null;
   private pendingJumpCount = 0;
   private missingFrameCount = 0;
+  private reacquiring = false;
+  private reacquireSemi: number | null = null;
+  private reacquireCount = 0;
+  private voiced = false;
   private recentSemi: number[] = [];
 
   constructor(config: Partial<LivePitchStabilizerConfig> = {}) {
@@ -56,7 +74,55 @@ export class LivePitchStabilizer {
     this.pendingJumpSemi = null;
     this.pendingJumpCount = 0;
     this.missingFrameCount = 0;
+    this.reacquiring = false;
+    this.reacquireSemi = null;
+    this.reacquireCount = 0;
+    this.voiced = false;
     this.recentSemi = [];
+  }
+
+  status(): LivePitchStabilizerStatus {
+    return { voiced: this.voiced, reacquiring: this.reacquiring };
+  }
+
+  private enterReacquire(): void {
+    this.stableSemi = null;
+    this.pendingJumpSemi = null;
+    this.pendingJumpCount = 0;
+    this.recentSemi = [];
+    this.reacquiring = true;
+    this.reacquireSemi = null;
+    this.reacquireCount = 0;
+    this.voiced = false;
+  }
+
+  private passesReacquireGate(frame: PitchDetectionFrame): boolean {
+    return (
+      frame.rms >= this.config.reacquireRmsGate &&
+      frame.clarity >= this.config.reacquireClarityThreshold
+    );
+  }
+
+  private acceptReacquireCandidate(correctedSemi: number): boolean {
+    if (
+      this.reacquireSemi != null &&
+      Math.abs(correctedSemi - this.reacquireSemi) <= this.config.reacquireToleranceSemitones
+    ) {
+      this.reacquireCount += 1;
+    } else {
+      this.reacquireSemi = correctedSemi;
+      this.reacquireCount = 1;
+    }
+
+    if (this.reacquireCount < this.config.reacquireFrames) {
+      return false;
+    }
+
+    this.reacquiring = false;
+    this.reacquireSemi = null;
+    this.reacquireCount = 0;
+    this.recentSemi = [];
+    return true;
   }
 
   stabilize(
@@ -66,8 +132,9 @@ export class LivePitchStabilizer {
     if (!frame || !isFinitePositive(frame.hz)) {
       this.missingFrameCount += 1;
       if (this.missingFrameCount >= this.config.missingFrameResetCount) {
-        this.reset();
+        this.enterReacquire();
       }
+      this.voiced = false;
       return null;
     }
 
@@ -75,6 +142,13 @@ export class LivePitchStabilizer {
     const targetHz = options.expectedHz ?? options.referenceHz;
     const correctedHz = correctPitchOctave(frame.hz, targetHz);
     const correctedSemi = freqToSemitone(correctedHz);
+
+    if (this.reacquiring) {
+      if (!this.passesReacquireGate(frame) || !this.acceptReacquireCandidate(correctedSemi)) {
+        this.voiced = false;
+        return null;
+      }
+    }
 
     if (this.stableSemi != null) {
       const jump = Math.abs(correctedSemi - this.stableSemi);
@@ -90,6 +164,7 @@ export class LivePitchStabilizer {
         }
 
         if (this.pendingJumpCount < this.config.confirmedJumpFrames) {
+          this.voiced = false;
           return null;
         }
 
@@ -106,6 +181,7 @@ export class LivePitchStabilizer {
 
     const stableSemi = median(this.recentSemi);
     this.stableSemi = stableSemi;
+    this.voiced = true;
     return semitoneToFreq(stableSemi);
   }
 }

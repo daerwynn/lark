@@ -12,6 +12,7 @@ export interface PracticePitchFeedbackSettings {
 export interface PracticeSettings {
   pitchFeedback: PracticePitchFeedbackSettings;
   micLatencyMs: number;
+  liveTraceOffsetMs: number;
   usdxLyricDisplayOffsetMs: number;
 }
 
@@ -22,6 +23,9 @@ export const MIN_PITCH_THRESHOLD_CENTS = 1;
 export const MAX_PITCH_THRESHOLD_CENTS = 200;
 export const MIN_MIC_LATENCY_MS = 0;
 export const MAX_MIC_LATENCY_MS = 500;
+export const DEFAULT_LIVE_TRACE_OFFSET_MS = 0;
+export const MIN_LIVE_TRACE_OFFSET_MS = -1000;
+export const MAX_LIVE_TRACE_OFFSET_MS = 1000;
 export const DEFAULT_USDX_LYRIC_DISPLAY_OFFSET_MS = 0;
 export const MIN_USDX_LYRIC_DISPLAY_OFFSET_MS = -3000;
 export const MAX_USDX_LYRIC_DISPLAY_OFFSET_MS = 3000;
@@ -66,6 +70,14 @@ export function normalizeMicLatencyMs(value: number | null | undefined): number 
   );
 }
 
+export function normalizeLiveTraceOffsetMs(value: number | null | undefined): number {
+  return clamp(
+    Math.round(finiteOrDefault(value, DEFAULT_LIVE_TRACE_OFFSET_MS)),
+    MIN_LIVE_TRACE_OFFSET_MS,
+    MAX_LIVE_TRACE_OFFSET_MS,
+  );
+}
+
 export function normalizeUsdxLyricDisplayOffsetMs(value: number | null | undefined): number {
   return clamp(
     Math.round(finiteOrDefault(value, DEFAULT_USDX_LYRIC_DISPLAY_OFFSET_MS)),
@@ -82,6 +94,7 @@ export function practiceSettingsFromConfig(config: AppConfig | null | undefined)
       config?.practice_pitch_orange_cents,
     ),
     micLatencyMs: normalizeMicLatencyMs(config?.practice_mic_latency_ms),
+    liveTraceOffsetMs: normalizeLiveTraceOffsetMs(config?.practice_live_trace_offset_ms),
     usdxLyricDisplayOffsetMs: normalizeUsdxLyricDisplayOffsetMs(
       config?.usdx_lyric_display_offset_ms,
     ),

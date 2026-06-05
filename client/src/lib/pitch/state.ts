@@ -13,6 +13,7 @@ export interface PitchSeries {
   userPitches: (number | null)[];
   rawUserPitches?: (number | null)[];
   micFrameIds?: (number | null)[];
+  traceBreaks?: boolean[];
   similarities: number[];
   times: number[];
 }
@@ -58,11 +59,13 @@ export class PitchStateBuffer {
   userPitches: (number | null)[] = [];
   rawUserPitches: (number | null)[] = [];
   micFrameIds: (number | null)[] = [];
+  traceBreaks: boolean[] = [];
   similarities: number[] = [];
   times: number[] = [];
   private smoothedRef: number | null = null;
   private smoothedUser: number | null = null;
   private lastPushTime = 0;
+  private pendingTraceBreak = false;
 
   tryPush(
     refPitch: number | null,
@@ -85,6 +88,7 @@ export class PitchStateBuffer {
       this.userPitches.shift();
       this.rawUserPitches.shift();
       this.micFrameIds.shift();
+      this.traceBreaks.shift();
       this.similarities.shift();
       this.times.shift();
     }
@@ -92,8 +96,15 @@ export class PitchStateBuffer {
     this.userPitches.push(this.smoothedUser);
     this.rawUserPitches.push(rawUserPitch);
     this.micFrameIds.push(micFrameId);
+    this.traceBreaks.push(this.pendingTraceBreak);
+    this.pendingTraceBreak = false;
     this.similarities.push(similarity);
     this.times.push(time);
+  }
+
+  markTraceBreak(): void {
+    this.pendingTraceBreak = true;
+    this.smoothedUser = null;
   }
 
   snapshot(): PitchSeries {
@@ -102,6 +113,7 @@ export class PitchStateBuffer {
       userPitches: [...this.userPitches],
       rawUserPitches: [...this.rawUserPitches],
       micFrameIds: [...this.micFrameIds],
+      traceBreaks: [...this.traceBreaks],
       similarities: [...this.similarities],
       times: [...this.times],
     };
@@ -112,11 +124,13 @@ export class PitchStateBuffer {
     this.userPitches = [];
     this.rawUserPitches = [];
     this.micFrameIds = [];
+    this.traceBreaks = [];
     this.similarities = [];
     this.times = [];
     this.smoothedRef = null;
     this.smoothedUser = null;
     this.lastPushTime = 0;
+    this.pendingTraceBreak = false;
   }
 }
 

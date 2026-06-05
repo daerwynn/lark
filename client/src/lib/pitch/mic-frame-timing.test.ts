@@ -26,6 +26,19 @@ describe("mic frame timing helpers", () => {
     ).toBeCloseTo(9.72);
   });
 
+  it("applies positive live trace offset later in song time", () => {
+    expect(
+      micFrameSongTime({
+        currentPlaybackTime: 10,
+        nowMs: 1_200,
+        detectedAtMs: 1_000,
+        micLatencySec: 0.08,
+        liveTraceOffsetSec: 0.15,
+        duration: 180,
+      }),
+    ).toBeCloseTo(9.87);
+  });
+
   it("clamps frame song time to the song boundaries", () => {
     expect(
       micFrameSongTime({

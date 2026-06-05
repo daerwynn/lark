@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   normalizeMicLatencyMs,
+  normalizeLiveTraceOffsetMs,
   normalizePitchFeedbackSettings,
   normalizeUsdxLyricDisplayOffsetMs,
   pitchFeedbackLevelFromCents,
@@ -29,6 +30,13 @@ describe("practice settings helpers", () => {
     expect(normalizeMicLatencyMs(-10)).toBe(0);
     expect(normalizeMicLatencyMs(700)).toBe(500);
     expect(normalizeMicLatencyMs(83.7)).toBe(84);
+  });
+
+  it("normalizes live trace timing offset", () => {
+    expect(normalizeLiveTraceOffsetMs(-5000)).toBe(-1000);
+    expect(normalizeLiveTraceOffsetMs(5000)).toBe(1000);
+    expect(normalizeLiveTraceOffsetMs(83.7)).toBe(84);
+    expect(normalizeLiveTraceOffsetMs(Number.NaN)).toBe(0);
   });
 
   it("normalizes USDX lyric display offset", () => {

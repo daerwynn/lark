@@ -9,6 +9,8 @@ export const MIC_PITCH_CLARITY_THRESHOLD = 0.6;
 
 export const REF_RMS_GATE = 0.005;
 export const MIC_RMS_GATE = 0.003;
+export const MIC_REACQUIRE_RMS_GATE = 0.0045;
+export const MIC_REACQUIRE_CLARITY_THRESHOLD = 0.72;
 
 export const PUSH_INTERVAL_SEC = 0.02;
 export const SMOOTHING = 0.55;

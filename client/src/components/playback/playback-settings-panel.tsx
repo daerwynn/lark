@@ -27,13 +27,17 @@ import {
   DEFAULT_PITCH_GREEN_CENTS,
   DEFAULT_PITCH_ORANGE_CENTS,
   DEFAULT_PITCH_YELLOW_CENTS,
+  DEFAULT_LIVE_TRACE_OFFSET_MS,
   DEFAULT_USDX_LYRIC_DISPLAY_OFFSET_MS,
+  MAX_LIVE_TRACE_OFFSET_MS,
   MAX_MIC_LATENCY_MS,
   MAX_PITCH_THRESHOLD_CENTS,
   MAX_USDX_LYRIC_DISPLAY_OFFSET_MS,
+  MIN_LIVE_TRACE_OFFSET_MS,
   MIN_MIC_LATENCY_MS,
   MIN_PITCH_THRESHOLD_CENTS,
   MIN_USDX_LYRIC_DISPLAY_OFFSET_MS,
+  normalizeLiveTraceOffsetMs,
   normalizeUsdxLyricDisplayOffsetMs,
   normalizePitchFeedbackSettings,
   practiceSettingsFromConfig,
@@ -104,6 +108,10 @@ export function PlaybackSettingsPanel({ config, open, onClose }: PlaybackSetting
     mutate({ usdx_lyric_display_offset_ms: normalizeUsdxLyricDisplayOffsetMs(value) });
   };
 
+  const updateLiveTraceOffset = (value: number) => {
+    mutate({ practice_live_trace_offset_ms: normalizeLiveTraceOffsetMs(value) });
+  };
+
   const toggleWindowMode = (fullscreen: boolean) => {
     setIsFullScreen(fullscreen);
     void setFullScreen(fullscreen);
@@ -117,6 +125,7 @@ export function PlaybackSettingsPanel({ config, open, onClose }: PlaybackSetting
       practice_pitch_yellow_cents: DEFAULT_PITCH_YELLOW_CENTS,
       practice_pitch_orange_cents: DEFAULT_PITCH_ORANGE_CENTS,
       practice_mic_latency_ms: null,
+      practice_live_trace_offset_ms: DEFAULT_LIVE_TRACE_OFFSET_MS,
       usdx_lyric_display_offset_ms: DEFAULT_USDX_LYRIC_DISPLAY_OFFSET_MS,
       playback_volume: 1,
     });
@@ -253,6 +262,33 @@ export function PlaybackSettingsPanel({ config, open, onClose }: PlaybackSetting
                 value={[settings.micLatencyMs]}
                 onValueChange={([value]) => mutate({ practice_mic_latency_ms: value })}
               />
+            </Field>
+
+            <Field>
+              <Label>Live trace timing offset</Label>
+              <FieldDescription>
+                Positive values move the mic trace later; negative values move it earlier.
+              </FieldDescription>
+              <div className="flex items-center gap-3">
+                <Slider
+                  min={MIN_LIVE_TRACE_OFFSET_MS}
+                  max={MAX_LIVE_TRACE_OFFSET_MS}
+                  step={10}
+                  value={[settings.liveTraceOffsetMs]}
+                  onValueChange={([value]) => updateLiveTraceOffset(value)}
+                />
+                <Input
+                  className="w-28 bg-white/10 text-right text-white"
+                  type="number"
+                  min={MIN_LIVE_TRACE_OFFSET_MS}
+                  max={MAX_LIVE_TRACE_OFFSET_MS}
+                  step={10}
+                  value={settings.liveTraceOffsetMs}
+                  onChange={(event) => updateLiveTraceOffset(event.currentTarget.valueAsNumber)}
+                  aria-label="Live trace timing offset in milliseconds"
+                />
+                <span className="text-sm text-white/60">ms</span>
+              </div>
             </Field>
           </FieldGroup>
 

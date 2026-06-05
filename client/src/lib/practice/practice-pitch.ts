@@ -8,6 +8,7 @@ export const MAX_PRACTICE_RANGE = 48;
 export const PRACTICE_WINDOW_BEFORE = 5;
 export const PRACTICE_WINDOW_AFTER = 8;
 export const PRACTICE_LANE_PADDING_Y = 26;
+export const MAX_TRACE_CONNECTION_GAP_SEC = 0.15;
 
 const SEGMENT_LEAD_SEC = 1;
 const SEGMENT_LINGER_SEC = 0.75;
@@ -30,6 +31,7 @@ export interface PracticeTracePoint {
   pitch: number;
   similarity: number;
   hasReference: boolean;
+  breakBefore?: boolean;
 }
 
 export interface PracticeMissingChartData {
@@ -268,6 +270,7 @@ function tracePointFromHz(
   chartNotes: PracticeExpectedNote[],
   calibration: PracticePitchCalibration,
   kind: "reference" | "user",
+  breakBefore = false,
 ): PracticeTracePoint | null {
   if (!isFiniteNumber(hz) || hz <= 0) return null;
 
@@ -284,7 +287,38 @@ function tracePointFromHz(
     pitch,
     similarity: series.similarities[index] ?? 0,
     hasReference: refSemi != null,
+    breakBefore,
   };
+}
+
+function buildTraceFromPitches(
+  pitches: (number | null | undefined)[],
+  series: PitchSeries,
+  chartNotes: PracticeExpectedNote[],
+  calibration: PracticePitchCalibration,
+  kind: "reference" | "user",
+): PracticeTracePoint[] {
+  const points: PracticeTracePoint[] = [];
+  let pendingBreak = false;
+
+  for (let index = 0; index < pitches.length; index++) {
+    pendingBreak ||= series.traceBreaks?.[index] ?? false;
+    const point = tracePointFromHz(
+      pitches[index],
+      index,
+      series,
+      chartNotes,
+      calibration,
+      kind,
+      pendingBreak,
+    );
+    if (!point) continue;
+
+    points.push(point);
+    pendingBreak = false;
+  }
+
+  return points;
 }
 
 export function buildReferenceTrace(
@@ -292,9 +326,7 @@ export function buildReferenceTrace(
   chartNotes: PracticeExpectedNote[] = [],
   calibration: PracticePitchCalibration = computeChartPitchCalibration(series, chartNotes),
 ): PracticeTracePoint[] {
-  return series.refPitches
-    .map((hz, index) => tracePointFromHz(hz, index, series, chartNotes, calibration, "reference"))
-    .filter((point): point is PracticeTracePoint => point != null);
+  return buildTraceFromPitches(series.refPitches, series, chartNotes, calibration, "reference");
 }
 
 export function buildUserTrace(
@@ -302,9 +334,7 @@ export function buildUserTrace(
   chartNotes: PracticeExpectedNote[] = [],
   calibration: PracticePitchCalibration = computeChartPitchCalibration(series, chartNotes),
 ): PracticeTracePoint[] {
-  return series.userPitches
-    .map((hz, index) => tracePointFromHz(hz, index, series, chartNotes, calibration, "user"))
-    .filter((point): point is PracticeTracePoint => point != null);
+  return buildTraceFromPitches(series.userPitches, series, chartNotes, calibration, "user");
 }
 
 export function buildRawUserTrace(
@@ -312,9 +342,23 @@ export function buildRawUserTrace(
   chartNotes: PracticeExpectedNote[] = [],
   calibration: PracticePitchCalibration = computeChartPitchCalibration(series, chartNotes),
 ): PracticeTracePoint[] {
-  return (series.rawUserPitches ?? [])
-    .map((hz, index) => tracePointFromHz(hz, index, series, chartNotes, calibration, "user"))
-    .filter((point): point is PracticeTracePoint => point != null);
+  return buildTraceFromPitches(
+    series.rawUserPitches ?? [],
+    series,
+    chartNotes,
+    calibration,
+    "user",
+  );
+}
+
+export function shouldConnectTracePoints(
+  previous: PracticeTracePoint,
+  point: PracticeTracePoint,
+  maxGapSec: number = MAX_TRACE_CONNECTION_GAP_SEC,
+): boolean {
+  if (previous.breakBefore || point.breakBefore) return false;
+  if (!Number.isFinite(previous.time) || !Number.isFinite(point.time)) return false;
+  return point.time - previous.time <= maxGapSec;
 }
 
 function average(values: number[]): number | null {
@@ -439,6 +483,7 @@ export function filterPitchSeriesSince(series: PitchSeries, startTime: number): 
   const userPitches: (number | null)[] = [];
   const rawUserPitches: (number | null)[] = [];
   const micFrameIds: (number | null)[] = [];
+  const traceBreaks: boolean[] = [];
   const similarities: number[] = [];
   const times: number[] = [];
 
@@ -448,11 +493,20 @@ export function filterPitchSeriesSince(series: PitchSeries, startTime: number): 
     userPitches.push(series.userPitches[i] ?? null);
     rawUserPitches.push(series.rawUserPitches?.[i] ?? null);
     micFrameIds.push(series.micFrameIds?.[i] ?? null);
+    traceBreaks.push(series.traceBreaks?.[i] ?? false);
     similarities.push(series.similarities[i] ?? 0);
     times.push(series.times[i]);
   }
 
-  return { refPitches, userPitches, rawUserPitches, micFrameIds, similarities, times };
+  return {
+    refPitches,
+    userPitches,
+    rawUserPitches,
+    micFrameIds,
+    traceBreaks,
+    similarities,
+    times,
+  };
 }
 
 function notesFromReferenceTrace(trace: PracticeTracePoint[]): PracticeExpectedNote[] {

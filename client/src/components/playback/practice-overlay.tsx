@@ -22,6 +22,7 @@ import {
   PRACTICE_LANE_PADDING_Y,
   PRACTICE_WINDOW_AFTER,
   PRACTICE_WINDOW_BEFORE,
+  shouldConnectTracePoints,
   type PracticeLaneModel,
   type PracticeTracePoint,
 } from "@/lib/practice/practice-pitch";
@@ -299,7 +300,7 @@ function drawTrace(
   for (let i = 1; i < points.length; i++) {
     const prev = points[i - 1];
     const point = points[i];
-    if (point.time - prev.time > 0.45) continue;
+    if (!shouldConnectTracePoints(prev, point)) continue;
 
     const x1 = timeToX(prev.time, currentTime, size.width);
     const x2 = timeToX(point.time, currentTime, size.width);
@@ -686,7 +687,9 @@ function PracticeOverlayImpl({
               : model.pitchCalibration.midiOffset.toFixed(2)}{" "}
             ({model.pitchCalibration.sampleCount})
           </div>
-          <div>mic latency {settings.micLatencyMs}ms</div>
+          <div>
+            mic latency {settings.micLatencyMs}ms live offset {settings.liveTraceOffsetMs}ms
+          </div>
           <div>
             mic active capture={String(micCaptureActive)} pitch={String(micPitchActive)}
           </div>
@@ -715,6 +718,10 @@ function PracticeOverlayImpl({
           <div>
             displayed={String(micDebug.displayed)} scored={String(micDebug.scored)} drop=
             {micDebug.dropReason ?? "--"}
+          </div>
+          <div>
+            voiced={String(micDebug.voiced)} reacquiring={String(micDebug.reacquiring)} comparison=
+            {String(micDebug.comparisonAvailable)} break={String(micDebug.traceBreakInserted)}
           </div>
           <div>
             phrase {model.currentSegmentIndex}{" "}

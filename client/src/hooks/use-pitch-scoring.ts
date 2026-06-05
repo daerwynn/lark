@@ -10,6 +10,10 @@ import {
   micFrameSongTime,
   type MicFrameDropReason,
 } from "@/lib/pitch/mic-frame-timing";
+import {
+  shouldDisplayMainMicTrace,
+  shouldScoreMainMicTrace,
+} from "@/lib/pitch/mic-trace-visibility";
 import { LivePitchStabilizer } from "@/lib/pitch/stabilizer";
 import { applyPitchOffsetToFrame } from "@/lib/practice/vocal-calibration";
 import {
@@ -31,7 +35,13 @@ const BACKWARD_SEEK_RESET_SEC = 0.25;
 const CHART_CALIBRATION_SAMPLES = 80;
 const CHART_EXPECTED_TOLERANCE_SEC = 0.12;
 
-export type PitchScoringDropReason = MicFrameDropReason | "outlier" | "no-expected-pitch" | null;
+export type PitchScoringDropReason =
+  | MicFrameDropReason
+  | "outlier"
+  | "unvoiced"
+  | "reacquiring"
+  | "no-expected-pitch"
+  | null;
 
 export interface PitchScoringDebug {
   rawHz: number | null;
@@ -42,8 +52,13 @@ export interface PitchScoringDebug {
   rms: number | null;
   frameAgeMs: number | null;
   frameId: number | null;
+  playbackTime: number | null;
+  voiced: boolean;
+  reacquiring: boolean;
+  comparisonAvailable: boolean;
   displayed: boolean;
   scored: boolean;
+  traceBreakInserted: boolean;
   dropReason: PitchScoringDropReason;
 }
 
@@ -51,6 +66,7 @@ export interface PitchScoringSource {
   isReady: boolean;
   duration: number;
   micLatencySec: number;
+  liveTraceOffsetSec?: number;
   getVocalsBuffer: () => AudioBuffer | null;
   subscribe: (fn: TimeSubscriber) => () => void;
   segments?: Segment[];
@@ -66,8 +82,13 @@ const EMPTY_DEBUG: PitchScoringDebug = {
   rms: null,
   frameAgeMs: null,
   frameId: null,
+  playbackTime: null,
+  voiced: false,
+  reacquiring: false,
+  comparisonAvailable: false,
   displayed: false,
   scored: false,
+  traceBreakInserted: false,
   dropReason: "no-frame",
 };
 
@@ -88,6 +109,7 @@ export function usePitchScoring(
     isReady,
     duration,
     micLatencySec,
+    liveTraceOffsetSec = 0,
     getVocalsBuffer,
     subscribe,
     segments = [],
@@ -137,7 +159,15 @@ export function usePitchScoring(
     setSeries(bufferRef.current.snapshot());
     setScore(0);
     setDebug(EMPTY_DEBUG);
-  }, [isReady, duration, getVocalsBuffer, chartNotes, micLatencySec, micPitchOffsetCents]);
+  }, [
+    isReady,
+    duration,
+    getVocalsBuffer,
+    chartNotes,
+    micLatencySec,
+    liveTraceOffsetSec,
+    micPitchOffsetCents,
+  ]);
 
   useEffect(() => {
     if (!isReady) {
@@ -176,8 +206,15 @@ export function usePitchScoring(
           rms: frame?.rms ?? null,
           frameAgeMs: decision.ageMs,
           frameId: frame?.id ?? null,
+          playbackTime: t,
+          voiced: stabilizerRef.current.status().voiced,
+          reacquiring: stabilizerRef.current.status().reacquiring,
+          traceBreakInserted: decision.dropReason !== "already-processed",
           dropReason: decision.dropReason,
         });
+        if (decision.dropReason !== "already-processed") {
+          bufferRef.current.markTraceBreak();
+        }
         return;
       }
 
@@ -190,6 +227,7 @@ export function usePitchScoring(
         nowMs,
         detectedAtMs: frame.detectedAtMs,
         micLatencySec,
+        liveTraceOffsetSec,
         duration,
       });
       lastProcessedFrameIdRef.current = frame.id;
@@ -219,19 +257,66 @@ export function usePitchScoring(
       const chartOffset = median(chartCalibrationOffsetsRef.current);
       const chartExpectedHz =
         chartNote && chartOffset != null ? semitoneToFreq(chartNote.pitch + chartOffset) : null;
+      const comparisonHz = refHz ?? chartExpectedHz;
+      const hasExpectedPitch = comparisonHz != null || chartNote != null;
+
+      if (!hasExpectedPitch) {
+        stabilizerRef.current.stabilize(null);
+        bufferRef.current.markTraceBreak();
+        bufferRef.current.tryPush(null, null, 0, micSongTime, rawMic?.hz ?? null, frame.id);
+        setSeries(bufferRef.current.snapshot());
+        setDebug({
+          rawHz: rawMic?.hz ?? null,
+          stabilizedHz: null,
+          rawMidi: hzToMidi(rawMic?.hz),
+          stabilizedMidi: null,
+          clarity: rawMic?.clarity ?? null,
+          rms: rawMic?.rms ?? null,
+          frameAgeMs: decision.ageMs,
+          frameId: frame.id,
+          playbackTime: t,
+          voiced: stabilizerRef.current.status().voiced,
+          reacquiring: stabilizerRef.current.status().reacquiring,
+          comparisonAvailable: false,
+          displayed: false,
+          scored: false,
+          traceBreakInserted: true,
+          dropReason: "no-expected-pitch",
+        });
+        return;
+      }
+
       const stabilizedMic = stabilizerRef.current.stabilize(rawMic, {
         expectedHz: chartExpectedHz,
         referenceHz: refHz,
       });
-      const comparisonHz = refHz ?? chartExpectedHz;
+      const stabilizerStatus = stabilizerRef.current.status();
       const sim =
         comparisonHz != null && stabilizedMic != null
           ? pitchSimilarity(comparisonHz, stabilizedMic)
           : 0;
-      const displayed = stabilizedMic != null;
-      const scored = comparisonHz != null && stabilizedMic != null;
+      const displayed = shouldDisplayMainMicTrace({
+        chartNoteAvailable: chartNote != null,
+        comparisonHz,
+        stabilizedHz: stabilizedMic,
+      });
+      const scored = shouldScoreMainMicTrace({
+        chartNoteAvailable: chartNote != null,
+        comparisonHz,
+        stabilizedHz: stabilizedMic,
+      });
       const dropReason: PitchScoringDropReason =
-        stabilizedMic == null ? "outlier" : comparisonHz == null ? "no-expected-pitch" : null;
+        stabilizedMic == null
+          ? stabilizerStatus.reacquiring
+            ? "reacquiring"
+            : !stabilizerStatus.voiced
+              ? "unvoiced"
+              : "outlier"
+          : null;
+
+      if (!displayed) {
+        bufferRef.current.markTraceBreak();
+      }
 
       bufferRef.current.tryPush(
         comparisonHz,
@@ -253,14 +338,19 @@ export function usePitchScoring(
         rms: rawMic?.rms ?? null,
         frameAgeMs: decision.ageMs,
         frameId: frame.id,
+        playbackTime: t,
+        voiced: stabilizerStatus.voiced,
+        reacquiring: stabilizerStatus.reacquiring,
+        comparisonAvailable: comparisonHz != null,
         displayed,
         scored,
+        traceBreakInserted: !displayed,
         dropReason,
       });
     };
 
     return subscribe(run);
-  }, [isReady, subscribe, getVocalsBuffer, micLatencySec, micPitchOffsetCents]);
+  }, [isReady, subscribe, getVocalsBuffer, micLatencySec, liveTraceOffsetSec, micPitchOffsetCents]);
 
   return { series, score, debug };
 }

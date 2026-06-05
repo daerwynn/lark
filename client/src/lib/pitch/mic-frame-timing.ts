@@ -21,15 +21,21 @@ export function micFrameSongTime({
   detectedAtMs,
   micLatencySec,
   duration,
+  liveTraceOffsetSec = 0,
 }: {
   currentPlaybackTime: number;
   nowMs: number;
   detectedAtMs: number;
   micLatencySec: number;
   duration: number;
+  liveTraceOffsetSec?: number;
 }): number {
   const frameAgeSec = micFrameAgeMs(nowMs, detectedAtMs) / 1000;
-  const raw = currentPlaybackTime - frameAgeSec - Math.max(0, micLatencySec);
+  const raw =
+    currentPlaybackTime -
+    frameAgeSec -
+    Math.max(0, micLatencySec) +
+    (Number.isFinite(liveTraceOffsetSec) ? liveTraceOffsetSec : 0);
   const max = Number.isFinite(duration) && duration > 0 ? duration : Number.POSITIVE_INFINITY;
   return Math.min(max, Math.max(0, raw));
 }

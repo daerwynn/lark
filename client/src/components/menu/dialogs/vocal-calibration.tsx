@@ -42,11 +42,14 @@ import {
   PRACTICE_LANE_PADDING_Y,
   PRACTICE_WINDOW_AFTER,
   PRACTICE_WINDOW_BEFORE,
+  shouldConnectTracePoints,
   type PracticeLaneModel,
   type PracticeTracePoint,
 } from "@/lib/practice/practice-pitch";
 import {
   buildCalibrationSequence,
+  CALIBRATION_PASS_TRANSPOSITIONS,
+  CALIBRATION_SCALE_OFFSETS,
   midiToNoteName,
   sequenceDuration,
   VOICE_RANGE_PRESETS,
@@ -73,6 +76,9 @@ const USER_LOW = "rgba(255, 88, 88, 0.96)";
 const EMPTY_SERIES: PitchSeries = {
   refPitches: [],
   userPitches: [],
+  rawUserPitches: [],
+  traceBreaks: [],
+  micFrameIds: [],
   similarities: [],
   times: [],
 };
@@ -232,7 +238,7 @@ function drawTrace(
   for (let i = 1; i < points.length; i++) {
     const prev = points[i - 1];
     const point = points[i];
-    if (point.time - prev.time > 0.45) continue;
+    if (!shouldConnectTracePoints(prev, point)) continue;
 
     const x1 = timeToX(prev.time, currentTime, size.width);
     const x2 = timeToX(point.time, currentTime, size.width);
@@ -480,6 +486,17 @@ export function VocalCalibrationDialog() {
   };
 
   const currentMidi = activeExpectedMidi(sequence, currentTime);
+  const currentToneIndex = sequence.findIndex(
+    (tone) => currentTime >= tone.startSec && currentTime < tone.endSec,
+  );
+  const safeToneIndex = currentToneIndex >= 0 ? currentToneIndex : Math.max(0, sequence.length - 1);
+  const currentPassIndex = Math.min(
+    CALIBRATION_PASS_TRANSPOSITIONS.length,
+    Math.floor(safeToneIndex / CALIBRATION_SCALE_OFFSETS.length) + 1,
+  );
+  const currentNoteInPass =
+    currentToneIndex >= 0 ? (currentToneIndex % CALIBRATION_SCALE_OFFSETS.length) + 1 : 1;
+  const totalNoteIndex = currentToneIndex >= 0 ? currentToneIndex + 1 : 1;
   const currentTone = sequence.find(
     (tone) => currentTime >= tone.startSec && currentTime < tone.endSec,
   );
@@ -582,6 +599,31 @@ export function VocalCalibrationDialog() {
               className="h-full rounded-full bg-primary transition-[width]"
               style={{ width: `${progress}%` }}
             />
+          </div>
+
+          <div className="mt-4 grid shrink-0 grid-cols-2 gap-3 md:grid-cols-4">
+            <div className="rounded-sm border border-white/15 bg-white/10 px-4 py-2">
+              <p className="text-xs tracking-[0.16em] text-white/55 uppercase">Pass</p>
+              <p className="text-2xl font-semibold tabular-nums">
+                {currentPassIndex} / {CALIBRATION_PASS_TRANSPOSITIONS.length}
+              </p>
+            </div>
+            <div className="rounded-sm border border-white/15 bg-white/10 px-4 py-2">
+              <p className="text-xs tracking-[0.16em] text-white/55 uppercase">Note</p>
+              <p className="text-2xl font-semibold tabular-nums">
+                {currentNoteInPass} / {CALIBRATION_SCALE_OFFSETS.length}
+              </p>
+            </div>
+            <div className="rounded-sm border border-white/15 bg-white/10 px-4 py-2">
+              <p className="text-xs tracking-[0.16em] text-white/55 uppercase">Total</p>
+              <p className="text-2xl font-semibold tabular-nums">
+                {totalNoteIndex} / {sequence.length}
+              </p>
+            </div>
+            <div className="rounded-sm border border-white/15 bg-white/10 px-4 py-2">
+              <p className="text-xs tracking-[0.16em] text-white/55 uppercase">Hold</p>
+              <p className="text-2xl font-semibold tabular-nums">2.0s</p>
+            </div>
           </div>
 
           <div

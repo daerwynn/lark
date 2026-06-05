@@ -14,7 +14,9 @@ import {
   isPracticeSegmentDisplayVisible,
   practicePitchToY,
   practiceTimeToX,
+  shouldConnectTracePoints,
   type PracticeExpectedNote,
+  type PracticeTracePoint,
   MAX_PRACTICE_RANGE,
   MIN_PRACTICE_RANGE,
 } from "./practice-pitch";
@@ -155,6 +157,41 @@ describe("practice pitch adapter", () => {
     expect(practicePitchToY(50, vertical, 100, 10)).toBeCloseTo(90);
   });
 
+  it("does not connect trace points across explicit discontinuities", () => {
+    const previous: PracticeTracePoint = {
+      time: 1,
+      pitch: 60,
+      similarity: 1,
+      hasReference: true,
+    };
+    const point: PracticeTracePoint = {
+      time: 1.05,
+      pitch: 60.2,
+      similarity: 1,
+      hasReference: true,
+      breakBefore: true,
+    };
+
+    expect(shouldConnectTracePoints(previous, point)).toBe(false);
+  });
+
+  it("does not connect trace points across short silence gaps", () => {
+    const previous: PracticeTracePoint = {
+      time: 1,
+      pitch: 60,
+      similarity: 1,
+      hasReference: true,
+    };
+    const point: PracticeTracePoint = {
+      time: 1.2,
+      pitch: 60.2,
+      similarity: 1,
+      hasReference: true,
+    };
+
+    expect(shouldConnectTracePoints(previous, point)).toBe(false);
+  });
+
   it("aligns live mic pitch to UltraStar chart pitch with guide-vocal calibration", () => {
     const chartNotes: PracticeExpectedNote[] = [
       { start: 1, end: 2, pitch: 0, label: "A", source: "chart" },
@@ -241,6 +278,49 @@ describe("practice pitch adapter", () => {
     expect(model.userTrace).toHaveLength(1);
     expect(model.userTrace[0].pitch).toBeCloseTo(-5);
     expect(model.vertical.min).toBeLessThan(-6);
+  });
+
+  it("carries trace breaks across skipped null pitch samples", () => {
+    const model = buildPracticeLaneModel({
+      segments: [
+        {
+          text: "relative",
+          start: 1,
+          end: 2,
+          words: [{ word: "relative", start: 1, end: 2, pitch: 0 }],
+        },
+      ],
+      series: {
+        times: [1, 1.08, 1.16],
+        refPitches: [semitoneToFreq(60), semitoneToFreq(60), semitoneToFreq(60)],
+        userPitches: [semitoneToFreq(60), null, semitoneToFreq(60)],
+        similarities: [1, 0, 1],
+        traceBreaks: [false, true, false],
+      },
+      currentTime: 1.16,
+    });
+
+    expect(model.userTrace).toHaveLength(2);
+    expect(model.userTrace[1].breakBefore).toBe(true);
+    expect(shouldConnectTracePoints(model.userTrace[0], model.userTrace[1])).toBe(false);
+  });
+
+  it("keeps raw debug pitch separate when no expected pitch is available", () => {
+    const model = buildPracticeLaneModel({
+      segments: [],
+      series: {
+        times: [1],
+        refPitches: [null],
+        userPitches: [null],
+        rawUserPitches: [semitoneToFreq(60)],
+        similarities: [0],
+      },
+      currentTime: 1,
+    });
+
+    expect(model.expectedSource).toBe("none");
+    expect(model.userTrace).toHaveLength(0);
+    expect(model.rawUserTrace).toHaveLength(1);
   });
 
   it("computes expected-vs-mic cents differences", () => {
