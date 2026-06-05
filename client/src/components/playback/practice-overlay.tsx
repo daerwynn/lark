@@ -1,5 +1,6 @@
 import { usePlaybackTransportActions, usePlaybackTransportState } from "@/contexts/playback";
 import type { PracticeLoopControls } from "@/hooks/playback";
+import type { PitchScoringDebug } from "@/hooks/use-pitch-scoring";
 import { shortcutHint, type PlaybackShortcutBindings } from "@/lib/playback/keybindings";
 import { formatPlaybackTime } from "@/lib/playback/transport-controls";
 import type { PitchSeries } from "@/lib/pitch/state";
@@ -39,6 +40,9 @@ import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from "reac
 interface PracticeOverlayProps {
   segments: Segment[];
   series: PitchSeries;
+  micDebug: PitchScoringDebug;
+  micCaptureActive: boolean;
+  micPitchActive: boolean;
   loop: PracticeLoopControls;
   settings: PracticeSettings;
   keybindings: PlaybackShortcutBindings;
@@ -56,6 +60,7 @@ const LANE_PADDING_X = 20;
 const NOTE_COLOR = "rgba(91, 214, 255, 0.78)";
 const NOTE_EDGE = "rgba(255, 255, 255, 0.7)";
 const REF_COLOR = "rgba(91, 214, 255, 0.72)";
+const RAW_USER_COLOR = "rgba(185, 190, 198, 0.45)";
 const USER_GOOD = "rgba(78, 255, 126, 0.95)";
 const USER_OK = "rgba(255, 218, 82, 0.95)";
 const USER_LOW = "rgba(255, 88, 88, 0.95)";
@@ -343,6 +348,7 @@ function drawLane(
   currentTime: number,
   loopRange: PracticeLoopRange | null,
   feedbackLevel: PitchFeedbackLevel | null,
+  showRawTrace: boolean,
 ): void {
   const ctx = setupCanvas(canvas, size);
   if (!ctx) return;
@@ -359,6 +365,13 @@ function drawLane(
     drawTrace(ctx, size, model, currentTime, model.referenceTrace, {
       lineWidth: 9,
       color: REF_COLOR,
+    });
+  }
+
+  if (showRawTrace) {
+    drawTrace(ctx, size, model, currentTime, model.rawUserTrace, {
+      lineWidth: 3,
+      color: RAW_USER_COLOR,
     });
   }
 
@@ -453,6 +466,9 @@ function CountInButton({
 function PracticeOverlayImpl({
   segments,
   series,
+  micDebug,
+  micCaptureActive,
+  micPitchActive,
   loop,
   settings,
   keybindings,
@@ -507,8 +523,8 @@ function PracticeOverlayImpl({
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    drawLane(canvas, lane.size, model, currentTime, loop.activeLoop, feedbackLevel);
-  }, [lane.size, model, currentTime, loop.activeLoop, feedbackLevel]);
+    drawLane(canvas, lane.size, model, currentTime, loop.activeLoop, feedbackLevel, debugEnabled);
+  }, [lane.size, model, currentTime, loop.activeLoop, feedbackLevel, debugEnabled]);
 
   const currentPhraseVisible =
     model.currentSegment != null &&
@@ -671,6 +687,35 @@ function PracticeOverlayImpl({
             ({model.pitchCalibration.sampleCount})
           </div>
           <div>mic latency {settings.micLatencyMs}ms</div>
+          <div>
+            mic active capture={String(micCaptureActive)} pitch={String(micPitchActive)}
+          </div>
+          <div>
+            frame id {micDebug.frameId ?? "--"} age{" "}
+            {micDebug.frameAgeMs == null ? "--" : `${Math.round(micDebug.frameAgeMs)}ms`}
+          </div>
+          <div>
+            raw{" "}
+            {micDebug.rawHz == null
+              ? "--"
+              : `${Math.round(micDebug.rawHz)}Hz / ${micDebug.rawMidi?.toFixed(2) ?? "--"} st`}
+          </div>
+          <div>
+            stable{" "}
+            {micDebug.stabilizedHz == null
+              ? "--"
+              : `${Math.round(micDebug.stabilizedHz)}Hz / ${
+                  micDebug.stabilizedMidi?.toFixed(2) ?? "--"
+                } st`}
+          </div>
+          <div>
+            clarity {micDebug.clarity == null ? "--" : micDebug.clarity.toFixed(2)} rms{" "}
+            {micDebug.rms == null ? "--" : micDebug.rms.toFixed(4)}
+          </div>
+          <div>
+            displayed={String(micDebug.displayed)} scored={String(micDebug.scored)} drop=
+            {micDebug.dropReason ?? "--"}
+          </div>
           <div>
             phrase {model.currentSegmentIndex}{" "}
             {model.currentSegment

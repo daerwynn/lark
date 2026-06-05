@@ -8,7 +8,7 @@
 
 import { useMicCapture, useMicDevices, useMicPitch } from "@/hooks/use-mic-pitch";
 import { useMicReactive, type MicReactiveRef } from "@/hooks/use-mic-reactive";
-import { usePitchScoring } from "@/hooks/use-pitch-scoring";
+import { usePitchScoring, type PitchScoringDebug } from "@/hooks/use-pitch-scoring";
 import { usePlaybackConfigPersist } from "@/hooks/playback/use-playback-config-persist";
 import type { PitchSeries } from "@/lib/pitch/state";
 import { practiceSettingsFromConfig } from "@/lib/practice/practice-settings";
@@ -43,6 +43,7 @@ export interface PlaybackMicState {
   pitchScore: number | null;
   rawScore: number;
   series: PitchSeries;
+  micDebug: PitchScoringDebug;
   micCaptureActive: boolean;
   micPitchActive: boolean;
   micReady: boolean;
@@ -110,7 +111,11 @@ export function PlaybackMicProvider({ config, children }: PlaybackMicProviderPro
     fallbackMs: practiceSettings.micLatencyMs,
   });
 
-  const { series, score } = usePitchScoring(
+  const {
+    series,
+    score,
+    debug: micDebug,
+  } = usePitchScoring(
     {
       isReady,
       duration,
@@ -179,6 +184,7 @@ export function PlaybackMicProvider({ config, children }: PlaybackMicProviderPro
       pitchScore: micReady ? score : null,
       rawScore: score,
       series,
+      micDebug,
       micCaptureActive,
       micPitchActive,
       micReady,
@@ -190,6 +196,7 @@ export function PlaybackMicProvider({ config, children }: PlaybackMicProviderPro
     activeMicDeviceName,
     score,
     series,
+    micDebug,
     micCaptureActive,
     micPitchActive,
   ]);

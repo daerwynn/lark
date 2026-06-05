@@ -11,6 +11,8 @@ import { createPitchDetector, detectPitchFromSamplesRef } from "./detect";
 export interface PitchSeries {
   refPitches: (number | null)[];
   userPitches: (number | null)[];
+  rawUserPitches?: (number | null)[];
+  micFrameIds?: (number | null)[];
   similarities: number[];
   times: number[];
 }
@@ -54,6 +56,8 @@ export function snapToRefOctave(refSemi: number, userSemi: number): number {
 export class PitchStateBuffer {
   refPitches: (number | null)[] = [];
   userPitches: (number | null)[] = [];
+  rawUserPitches: (number | null)[] = [];
+  micFrameIds: (number | null)[] = [];
   similarities: number[] = [];
   times: number[] = [];
   private smoothedRef: number | null = null;
@@ -65,6 +69,8 @@ export class PitchStateBuffer {
     userPitch: number | null,
     similarity: number,
     time: number,
+    rawUserPitch: number | null = userPitch,
+    micFrameId: number | null = null,
   ): void {
     this.smoothedRef = ema(this.smoothedRef, refPitch);
     this.smoothedUser = ema(this.smoothedUser, userPitch);
@@ -77,11 +83,15 @@ export class PitchStateBuffer {
     if (this.refPitches.length >= PITCH_BUFFER_SIZE) {
       this.refPitches.shift();
       this.userPitches.shift();
+      this.rawUserPitches.shift();
+      this.micFrameIds.shift();
       this.similarities.shift();
       this.times.shift();
     }
     this.refPitches.push(this.smoothedRef);
     this.userPitches.push(this.smoothedUser);
+    this.rawUserPitches.push(rawUserPitch);
+    this.micFrameIds.push(micFrameId);
     this.similarities.push(similarity);
     this.times.push(time);
   }
@@ -90,6 +100,8 @@ export class PitchStateBuffer {
     return {
       refPitches: [...this.refPitches],
       userPitches: [...this.userPitches],
+      rawUserPitches: [...this.rawUserPitches],
+      micFrameIds: [...this.micFrameIds],
       similarities: [...this.similarities],
       times: [...this.times],
     };
@@ -98,6 +110,8 @@ export class PitchStateBuffer {
   reset(): void {
     this.refPitches = [];
     this.userPitches = [];
+    this.rawUserPitches = [];
+    this.micFrameIds = [];
     this.similarities = [];
     this.times = [];
     this.smoothedRef = null;

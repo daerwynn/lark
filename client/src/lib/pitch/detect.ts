@@ -16,6 +16,11 @@ export interface PitchDetectionFrame {
   rms: number;
 }
 
+export interface TimedPitchDetectionFrame extends PitchDetectionFrame {
+  id: number;
+  detectedAtMs: number;
+}
+
 export function measureRms(samples: ArrayLike<number>): number {
   if (samples.length === 0) return 0;
   let sum = 0;

@@ -3,8 +3,13 @@ import { PITCH_WINDOW_SAMPLES } from "@/lib/pitch/constants";
 import {
   createPitchDetector,
   detectPitchFromSamplesRef,
-  type PitchDetectionFrame,
+  type TimedPitchDetectionFrame,
 } from "@/lib/pitch/detect";
+import {
+  micFrameProcessDecision,
+  micFrameSongTime,
+  type MicFrameDropReason,
+} from "@/lib/pitch/mic-frame-timing";
 import { LivePitchStabilizer } from "@/lib/pitch/stabilizer";
 import { applyPitchOffsetToFrame } from "@/lib/practice/vocal-calibration";
 import {
@@ -26,6 +31,22 @@ const BACKWARD_SEEK_RESET_SEC = 0.25;
 const CHART_CALIBRATION_SAMPLES = 80;
 const CHART_EXPECTED_TOLERANCE_SEC = 0.12;
 
+export type PitchScoringDropReason = MicFrameDropReason | "outlier" | "no-expected-pitch" | null;
+
+export interface PitchScoringDebug {
+  rawHz: number | null;
+  stabilizedHz: number | null;
+  rawMidi: number | null;
+  stabilizedMidi: number | null;
+  clarity: number | null;
+  rms: number | null;
+  frameAgeMs: number | null;
+  frameId: number | null;
+  displayed: boolean;
+  scored: boolean;
+  dropReason: PitchScoringDropReason;
+}
+
 export interface PitchScoringSource {
   isReady: boolean;
   duration: number;
@@ -36,12 +57,30 @@ export interface PitchScoringSource {
   micPitchOffsetCents?: number | null;
 }
 
+const EMPTY_DEBUG: PitchScoringDebug = {
+  rawHz: null,
+  stabilizedHz: null,
+  rawMidi: null,
+  stabilizedMidi: null,
+  clarity: null,
+  rms: null,
+  frameAgeMs: null,
+  frameId: null,
+  displayed: false,
+  scored: false,
+  dropReason: "no-frame",
+};
+
 function median(values: number[]): number | null {
   if (values.length === 0) return null;
   const sorted = [...values].sort((a, b) => a - b);
   const middle = Math.floor(sorted.length / 2);
   if (sorted.length % 2 === 1) return sorted[middle];
   return (sorted[middle - 1] + sorted[middle]) / 2;
+}
+
+function hzToMidi(hz: number | null | undefined): number | null {
+  return typeof hz === "number" && Number.isFinite(hz) && hz > 0 ? freqToSemitone(hz) : null;
 }
 
 export function usePitchScoring(
@@ -54,7 +93,7 @@ export function usePitchScoring(
     segments = [],
     micPitchOffsetCents = null,
   }: PitchScoringSource,
-  micPitchFrame: PitchDetectionFrame | null,
+  micPitchFrame: TimedPitchDetectionFrame | null,
 ) {
   const refDetector = useRef(createPitchDetector());
   const scratchRef = useRef(new Float32Array(PITCH_WINDOW_SAMPLES));
@@ -62,6 +101,7 @@ export function usePitchScoring(
   const stabilizerRef = useRef(new LivePitchStabilizer());
   const scoringRef = useRef(new PitchScoring(1));
   const micPitchFrameRef = useRef(micPitchFrame);
+  const lastProcessedFrameIdRef = useRef<number | null>(null);
   const chartCalibrationOffsetsRef = useRef<number[]>([]);
   const singableRef = useRef<number | null>(null);
   const lastRunTimeRef = useRef(0);
@@ -74,6 +114,7 @@ export function usePitchScoring(
     times: [],
   });
   const [score, setScore] = useState(0);
+  const [debug, setDebug] = useState<PitchScoringDebug>(EMPTY_DEBUG);
 
   micPitchFrameRef.current = micPitchFrame;
   chartNotesRef.current = chartNotes;
@@ -84,6 +125,7 @@ export function usePitchScoring(
     }
     bufferRef.current.reset();
     stabilizerRef.current.reset();
+    lastProcessedFrameIdRef.current = null;
     chartCalibrationOffsetsRef.current = [];
     lastRunTimeRef.current = 0;
 
@@ -94,6 +136,7 @@ export function usePitchScoring(
 
     setSeries(bufferRef.current.snapshot());
     setScore(0);
+    setDebug(EMPTY_DEBUG);
   }, [isReady, duration, getVocalsBuffer, chartNotes, micLatencySec, micPitchOffsetCents]);
 
   useEffect(() => {
@@ -105,7 +148,9 @@ export function usePitchScoring(
       if (shouldResetPitchHistory(lastRunTimeRef.current, t, event, BACKWARD_SEEK_RESET_SEC)) {
         bufferRef.current.reset();
         stabilizerRef.current.reset();
+        lastProcessedFrameIdRef.current = null;
         setSeries(bufferRef.current.snapshot());
+        setDebug(EMPTY_DEBUG);
       }
       lastRunTimeRef.current = t;
 
@@ -113,13 +158,44 @@ export function usePitchScoring(
         return;
       }
 
-      const micSongTime = Math.max(0, t - micLatencySec);
-      if (micSongTime <= 0) {
+      const nowMs = performance.now();
+      const frame = micPitchFrameRef.current;
+      const decision = micFrameProcessDecision({
+        frame,
+        lastProcessedFrameId: lastProcessedFrameIdRef.current,
+        nowMs,
+      });
+
+      if (!decision.shouldProcess) {
+        stabilizerRef.current.stabilize(null);
+        setDebug({
+          ...EMPTY_DEBUG,
+          rawHz: frame?.hz ?? null,
+          rawMidi: hzToMidi(frame?.hz),
+          clarity: frame?.clarity ?? null,
+          rms: frame?.rms ?? null,
+          frameAgeMs: decision.ageMs,
+          frameId: frame?.id ?? null,
+          dropReason: decision.dropReason,
+        });
         return;
       }
 
+      if (!frame) {
+        return;
+      }
+
+      const micSongTime = micFrameSongTime({
+        currentPlaybackTime: t,
+        nowMs,
+        detectedAtMs: frame.detectedAtMs,
+        micLatencySec,
+        duration,
+      });
+      lastProcessedFrameIdRef.current = frame.id;
+
       const vocals = getVocalsBuffer();
-      const rawMic = applyPitchOffsetToFrame(micPitchFrameRef.current, micPitchOffsetCents);
+      const rawMic = applyPitchOffsetToFrame(frame, micPitchOffsetCents);
       const notes = chartNotesRef.current;
       const chartNote = expectedNoteAtTime(notes, micSongTime, CHART_EXPECTED_TOLERANCE_SEC);
       let refHz: number | null = null;
@@ -152,15 +228,39 @@ export function usePitchScoring(
         comparisonHz != null && stabilizedMic != null
           ? pitchSimilarity(comparisonHz, stabilizedMic)
           : 0;
+      const displayed = stabilizedMic != null;
+      const scored = comparisonHz != null && stabilizedMic != null;
+      const dropReason: PitchScoringDropReason =
+        stabilizedMic == null ? "outlier" : comparisonHz == null ? "no-expected-pitch" : null;
 
-      bufferRef.current.tryPush(comparisonHz, stabilizedMic, sim, micSongTime);
+      bufferRef.current.tryPush(
+        comparisonHz,
+        stabilizedMic,
+        sim,
+        micSongTime,
+        rawMic?.hz ?? null,
+        frame.id,
+      );
       scoringRef.current.accumulate(micSongTime, comparisonHz, stabilizedMic, sim);
       setSeries(bufferRef.current.snapshot());
       setScore(scoringRef.current.score());
+      setDebug({
+        rawHz: rawMic?.hz ?? null,
+        stabilizedHz: stabilizedMic,
+        rawMidi: hzToMidi(rawMic?.hz),
+        stabilizedMidi: hzToMidi(stabilizedMic),
+        clarity: rawMic?.clarity ?? null,
+        rms: rawMic?.rms ?? null,
+        frameAgeMs: decision.ageMs,
+        frameId: frame.id,
+        displayed,
+        scored,
+        dropReason,
+      });
     };
 
     return subscribe(run);
   }, [isReady, subscribe, getVocalsBuffer, micLatencySec, micPitchOffsetCents]);
 
-  return { series, score };
+  return { series, score, debug };
 }

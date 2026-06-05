@@ -62,10 +62,10 @@ export function applyPitchOffsetToHz(hz: number, offsetCents: number | null | un
   return semitoneToFreq(freqToSemitone(hz) - offsetCents / 100);
 }
 
-export function applyPitchOffsetToFrame(
-  frame: PitchDetectionFrame | null,
+export function applyPitchOffsetToFrame<T extends PitchDetectionFrame>(
+  frame: T | null,
   offsetCents: number | null | undefined,
-): PitchDetectionFrame | null {
+): T | null {
   if (!frame) return null;
   return { ...frame, hz: applyPitchOffsetToHz(frame.hz, offsetCents) };
 }

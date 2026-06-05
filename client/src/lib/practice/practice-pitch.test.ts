@@ -191,7 +191,7 @@ describe("practice pitch adapter", () => {
     expect(model.latestCentsDifference).toBe(0);
   });
 
-  it("does not plot chart-relative user pitch before pitch lock is available", () => {
+  it("plots unlocked live user pitch before chart pitch lock is available", () => {
     const chartOnlySeries: PitchSeries = {
       times: [1.25],
       refPitches: [null],
@@ -214,7 +214,33 @@ describe("practice pitch adapter", () => {
 
     expect(model.expectedSource).toBe("chart");
     expect(model.pitchCalibration.midiOffset).toBeNull();
-    expect(model.userTrace).toEqual([]);
+    expect(model.userTrace).toHaveLength(1);
+    expect(model.userTrace[0].pitch).toBeCloseTo(0);
+  });
+
+  it("includes visible user trace when computing chart-note vertical range", () => {
+    const model = buildPracticeLaneModel({
+      segments: [
+        {
+          text: "relative",
+          start: 1,
+          end: 2,
+          words: [{ word: "relative", start: 1, end: 2, pitch: 0 }],
+        },
+      ],
+      series: {
+        times: [1.25],
+        refPitches: [null],
+        userPitches: [semitoneToFreq(67)],
+        similarities: [0],
+      },
+      currentTime: 1.25,
+      semitoneRange: 12,
+    });
+
+    expect(model.userTrace).toHaveLength(1);
+    expect(model.userTrace[0].pitch).toBeCloseTo(-5);
+    expect(model.vertical.min).toBeLessThan(-6);
   });
 
   it("computes expected-vs-mic cents differences", () => {

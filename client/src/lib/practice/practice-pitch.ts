@@ -58,6 +58,7 @@ export interface PracticeLaneModel {
   expectedSource: ExpectedPitchSource;
   expectedNotes: PracticeExpectedNote[];
   referenceTrace: PracticeTracePoint[];
+  rawUserTrace: PracticeTracePoint[];
   userTrace: PracticeTracePoint[];
   matchQuality: number | null;
   latestUserPitch: PracticeTracePoint | null;
@@ -244,6 +245,8 @@ function alignTracePitchToPracticeScale(
       pitch = snapToRefOctave(refSemi, pitch);
     } else if (chartPitch != null && calibration.midiOffset != null) {
       pitch = snapToRefOctave(chartPitch + calibration.midiOffset, pitch);
+    } else if (chartPitch != null) {
+      pitch = snapToRefOctave(chartPitch, pitch);
     }
   }
 
@@ -274,16 +277,6 @@ function tracePointFromHz(
   const refHz = series.refPitches[index];
   const refSemi = isFiniteNumber(refHz) && refHz > 0 ? freqToSemitone(refHz) : null;
 
-  if (
-    kind === "user" &&
-    chartNotes.length > 0 &&
-    calibration.midiOffset == null &&
-    refSemi == null &&
-    chartPitchAtTime(chartNotes, time) != null
-  ) {
-    return null;
-  }
-
   const pitch = alignTracePitchToPracticeScale(hz, time, refSemi, chartNotes, calibration, kind);
 
   return {
@@ -310,6 +303,16 @@ export function buildUserTrace(
   calibration: PracticePitchCalibration = computeChartPitchCalibration(series, chartNotes),
 ): PracticeTracePoint[] {
   return series.userPitches
+    .map((hz, index) => tracePointFromHz(hz, index, series, chartNotes, calibration, "user"))
+    .filter((point): point is PracticeTracePoint => point != null);
+}
+
+export function buildRawUserTrace(
+  series: PitchSeries,
+  chartNotes: PracticeExpectedNote[] = [],
+  calibration: PracticePitchCalibration = computeChartPitchCalibration(series, chartNotes),
+): PracticeTracePoint[] {
+  return (series.rawUserPitches ?? [])
     .map((hz, index) => tracePointFromHz(hz, index, series, chartNotes, calibration, "user"))
     .filter((point): point is PracticeTracePoint => point != null);
 }
@@ -374,9 +377,9 @@ function computeVerticalRange(
   const windowStart = currentTime - windowBefore;
   const windowEnd = currentTime + windowAfter;
   const expectedValues = valuesInWindow(expectedNotes, windowStart, windowEnd);
-  const traceSource = expectedValues.length > 0 ? [] : [...referenceTrace, ...userTrace];
+  const traceSource = expectedValues.length > 0 ? userTrace : [...referenceTrace, ...userTrace];
   const traceValues = valuesInWindow(traceSource, windowStart, windowEnd);
-  const values = expectedValues.length > 0 ? expectedValues : traceValues;
+  const values = expectedValues.length > 0 ? [...expectedValues, ...traceValues] : traceValues;
   const center = average(values) ?? 60;
   const half = range / 2;
 
@@ -434,6 +437,8 @@ export function filterPitchSeriesSince(series: PitchSeries, startTime: number): 
 
   const refPitches: (number | null)[] = [];
   const userPitches: (number | null)[] = [];
+  const rawUserPitches: (number | null)[] = [];
+  const micFrameIds: (number | null)[] = [];
   const similarities: number[] = [];
   const times: number[] = [];
 
@@ -441,11 +446,13 @@ export function filterPitchSeriesSince(series: PitchSeries, startTime: number): 
     if (series.times[i] < startTime) continue;
     refPitches.push(series.refPitches[i] ?? null);
     userPitches.push(series.userPitches[i] ?? null);
+    rawUserPitches.push(series.rawUserPitches?.[i] ?? null);
+    micFrameIds.push(series.micFrameIds?.[i] ?? null);
     similarities.push(series.similarities[i] ?? 0);
     times.push(series.times[i]);
   }
 
-  return { refPitches, userPitches, similarities, times };
+  return { refPitches, userPitches, rawUserPitches, micFrameIds, similarities, times };
 }
 
 function notesFromReferenceTrace(trace: PracticeTracePoint[]): PracticeExpectedNote[] {
@@ -480,6 +487,7 @@ export function buildPracticeLaneModel({
   const hasChartNotes = chartNotes.length > 0;
   const pitchCalibration = computeChartPitchCalibration(series, chartNotes);
   const referenceTrace = buildReferenceTrace(series, chartNotes, pitchCalibration);
+  const rawUserTrace = buildRawUserTrace(series, chartNotes, pitchCalibration);
   const userTrace = buildUserTrace(series, chartNotes, pitchCalibration);
   const expectedNotes = hasChartNotes ? chartNotes : notesFromReferenceTrace(referenceTrace);
   const expectedSource: ExpectedPitchSource = hasChartNotes
@@ -498,6 +506,7 @@ export function buildPracticeLaneModel({
     expectedSource,
     expectedNotes,
     referenceTrace,
+    rawUserTrace,
     userTrace,
     matchQuality: computePhraseMatchQuality(series, currentSegment),
     latestUserPitch,

@@ -65,7 +65,7 @@ function PlaybackLayout({ song, config }: PlaybackLayoutProps) {
     togglePlayback,
   } = usePlaybackTransportActions();
   const { segments } = usePlaybackTranscriptState();
-  const { series } = usePlaybackMicState();
+  const { series, micDebug, micCaptureActive, micPitchActive } = usePlaybackMicState();
   const [practiceMode, setPracticeMode] = useState(false);
   const [usdxTimingOpen, setUsdxTimingOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -188,6 +188,9 @@ function PlaybackLayout({ song, config }: PlaybackLayoutProps) {
             <PracticeOverlay
               segments={segments}
               series={series}
+              micDebug={micDebug}
+              micCaptureActive={micCaptureActive}
+              micPitchActive={micPitchActive}
               loop={practiceLoop}
               settings={practiceSettings}
               keybindings={keybindings}

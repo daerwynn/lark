@@ -11,13 +11,15 @@ export interface LivePitchStabilizerConfig {
   jumpThresholdSemitones: number;
   confirmedJumpFrames: number;
   pendingToleranceSemitones: number;
+  missingFrameResetCount: number;
 }
 
 const DEFAULT_CONFIG: LivePitchStabilizerConfig = {
-  medianWindow: 3,
+  medianWindow: 5,
   jumpThresholdSemitones: 5,
   confirmedJumpFrames: 2,
   pendingToleranceSemitones: 1.5,
+  missingFrameResetCount: 8,
 };
 
 function isFinitePositive(value: number | null | undefined): value is number {
@@ -42,6 +44,7 @@ export class LivePitchStabilizer {
   private stableSemi: number | null = null;
   private pendingJumpSemi: number | null = null;
   private pendingJumpCount = 0;
+  private missingFrameCount = 0;
   private recentSemi: number[] = [];
 
   constructor(config: Partial<LivePitchStabilizerConfig> = {}) {
@@ -52,6 +55,7 @@ export class LivePitchStabilizer {
     this.stableSemi = null;
     this.pendingJumpSemi = null;
     this.pendingJumpCount = 0;
+    this.missingFrameCount = 0;
     this.recentSemi = [];
   }
 
@@ -60,19 +64,19 @@ export class LivePitchStabilizer {
     options: LivePitchStabilizerOptions = {},
   ): number | null {
     if (!frame || !isFinitePositive(frame.hz)) {
-      this.stableSemi = null;
-      this.pendingJumpSemi = null;
-      this.pendingJumpCount = 0;
-      this.recentSemi = [];
+      this.missingFrameCount += 1;
+      if (this.missingFrameCount >= this.config.missingFrameResetCount) {
+        this.reset();
+      }
       return null;
     }
 
+    this.missingFrameCount = 0;
     const targetHz = options.expectedHz ?? options.referenceHz;
     const correctedHz = correctPitchOctave(frame.hz, targetHz);
     const correctedSemi = freqToSemitone(correctedHz);
-    const hasExternalTarget = isFinitePositive(targetHz);
 
-    if (!hasExternalTarget && this.stableSemi != null) {
+    if (this.stableSemi != null) {
       const jump = Math.abs(correctedSemi - this.stableSemi);
       if (jump > this.config.jumpThresholdSemitones) {
         if (

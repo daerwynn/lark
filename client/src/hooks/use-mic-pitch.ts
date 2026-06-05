@@ -8,7 +8,7 @@ import { PITCH_WINDOW_SAMPLES } from "@/lib/pitch/constants";
 import {
   createMicPitchDetector,
   detectPitchFrameFromSamplesMic,
-  type PitchDetectionFrame,
+  type TimedPitchDetectionFrame,
 } from "@/lib/pitch/detect";
 import { SampleRing } from "@/lib/mic/sample-ring";
 import type { MicrophoneInfo } from "@/types/MicrophoneInfo";
@@ -50,10 +50,12 @@ export function useMicDevices(adapter: MicrophoneAdapter = defaultAdapter) {
 }
 
 export function useMicPitch(enabled: boolean) {
-  const [latestPitchFrame, setLatestPitchFrame] = useState<PitchDetectionFrame | null>(null);
+  const [latestPitchFrame, setLatestPitchFrame] = useState<TimedPitchDetectionFrame | null>(null);
   const [active, setActive] = useState(false);
   const ringRef = useRef<SampleRing | null>(null);
   const sampleRateRef = useRef(0);
+  const sampleVersionRef = useRef(0);
+  const frameIdRef = useRef(0);
 
   if (ringRef.current === null) {
     ringRef.current = new SampleRing(RING_CAPACITY);
@@ -62,6 +64,7 @@ export function useMicPitch(enabled: boolean) {
   useMicSamples((frame) => {
     sampleRateRef.current = frame.sample_rate;
     ringRef.current?.push(frame.samples);
+    sampleVersionRef.current += 1;
   }, enabled);
 
   useEffect(() => {
@@ -70,20 +73,32 @@ export function useMicPitch(enabled: boolean) {
       setActive(false);
       ringRef.current?.reset();
       sampleRateRef.current = 0;
+      sampleVersionRef.current = 0;
+      frameIdRef.current = 0;
       return;
     }
 
     setActive(true);
     const detector = createMicPitchDetector();
     const window = new Float32Array(PITCH_WINDOW_SAMPLES);
+    let analyzedSampleVersion = 0;
 
     const tick = () => {
       const ring = ringRef.current;
       const sr = sampleRateRef.current;
       if (!ring || sr === 0) return;
+      if (sampleVersionRef.current === analyzedSampleVersion) return;
       if (!ring.readMostRecent(window)) return;
+      analyzedSampleVersion = sampleVersionRef.current;
       const frame = detectPitchFrameFromSamplesMic(detector, window, sr);
-      setLatestPitchFrame(frame);
+      if (!frame) return;
+
+      frameIdRef.current += 1;
+      setLatestPitchFrame({
+        ...frame,
+        id: frameIdRef.current,
+        detectedAtMs: performance.now(),
+      });
     };
 
     const id = setInterval(tick, PITCH_TICK_MS);
@@ -92,6 +107,7 @@ export function useMicPitch(enabled: boolean) {
       clearInterval(id);
       setLatestPitchFrame(null);
       setActive(false);
+      analyzedSampleVersion = 0;
     };
   }, [enabled]);
 
