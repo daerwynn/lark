@@ -191,6 +191,32 @@ describe("practice pitch adapter", () => {
     expect(model.latestCentsDifference).toBe(0);
   });
 
+  it("does not plot chart-relative user pitch before pitch lock is available", () => {
+    const chartOnlySeries: PitchSeries = {
+      times: [1.25],
+      refPitches: [null],
+      userPitches: [semitoneToFreq(72)],
+      similarities: [0],
+    };
+
+    const model = buildPracticeLaneModel({
+      segments: [
+        {
+          text: "relative",
+          start: 1,
+          end: 2,
+          words: [{ word: "relative", start: 1, end: 2, pitch: 0 }],
+        },
+      ],
+      series: chartOnlySeries,
+      currentTime: 1.25,
+    });
+
+    expect(model.expectedSource).toBe("chart");
+    expect(model.pitchCalibration.midiOffset).toBeNull();
+    expect(model.userTrace).toEqual([]);
+  });
+
   it("computes expected-vs-mic cents differences", () => {
     expect(computePitchCentsDifference(12, 12.4)).toBe(40);
     expect(computePitchCentsDifference(null, 12.4)).toBeNull();

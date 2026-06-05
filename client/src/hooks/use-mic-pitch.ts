@@ -111,6 +111,7 @@ export function useMicCapture(
 ) {
   const [active, setActive] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [deviceName, setDeviceName] = useState<string | null>(null);
   const startedRef = useRef(false);
 
   useEffect(() => {
@@ -121,6 +122,7 @@ export function useMicCapture(
       }
       setError(null);
       setActive(false);
+      setDeviceName(null);
       return;
     }
 
@@ -128,7 +130,7 @@ export function useMicCapture(
 
     const run = async () => {
       try {
-        await adapter.startCapture(deviceId, options);
+        const activeDeviceName = await adapter.startCapture(deviceId, options);
 
         if (cancelled) {
           await adapter.stopCapture().catch(() => {});
@@ -137,6 +139,7 @@ export function useMicCapture(
 
         startedRef.current = true;
         setActive(true);
+        setDeviceName(activeDeviceName);
         setError(null);
       } catch (e) {
         void adapter.stopCapture().catch(() => {});
@@ -144,6 +147,7 @@ export function useMicCapture(
           const msg = e instanceof Error ? e.message : String(e);
           setError(msg);
           setActive(false);
+          setDeviceName(null);
         }
       }
     };
@@ -157,8 +161,9 @@ export function useMicCapture(
         startedRef.current = false;
       }
       setActive(false);
+      setDeviceName(null);
     };
   }, [enabled, options.emit_audio, deviceId, adapter]);
 
-  return { active, error };
+  return { active, error, deviceName };
 }

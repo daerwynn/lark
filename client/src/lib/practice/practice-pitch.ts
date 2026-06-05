@@ -273,6 +273,17 @@ function tracePointFromHz(
 
   const refHz = series.refPitches[index];
   const refSemi = isFiniteNumber(refHz) && refHz > 0 ? freqToSemitone(refHz) : null;
+
+  if (
+    kind === "user" &&
+    chartNotes.length > 0 &&
+    calibration.midiOffset == null &&
+    refSemi == null &&
+    chartPitchAtTime(chartNotes, time) != null
+  ) {
+    return null;
+  }
+
   const pitch = alignTracePitchToPracticeScale(hz, time, refSemi, chartNotes, calibration, kind);
 
   return {

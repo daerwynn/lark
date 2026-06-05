@@ -9,6 +9,8 @@ import { SelectLanguageDialog } from "@/components/menu/dialogs/language";
 import { CreateProfileDialog } from "@/components/menu/dialogs/profile/create";
 import { SelectProfileDialog } from "@/components/menu/dialogs/profile/select";
 import { SettingsDialog } from "@/components/menu/dialogs/settings";
+import { VocalCalibrationDialog } from "@/components/menu/dialogs/vocal-calibration";
+import { VocalWarmupsDialog } from "@/components/menu/dialogs/vocal-warmups";
 import { UpdateDialog } from "@/components/menu/dialogs/update";
 import { Sidebar } from "@/components/menu/sidebar/sidebar";
 import { EmptySongList } from "@/components/menu/song-list/empty-song-list";
@@ -60,6 +62,8 @@ export const Menu = () => {
     <Sidebar>
       {EXIT_SUPPORTED && <ExitDialog />}
       <SettingsDialog />
+      <VocalCalibrationDialog />
+      <VocalWarmupsDialog />
       <CreateProfileDialog />
       <SelectProfileDialog />
       <InfoDialog />

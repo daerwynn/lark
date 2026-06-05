@@ -22,7 +22,9 @@ import {
   DownloadIcon,
   HeartIcon,
   InfoIcon,
+  MicVocalIcon,
   RefreshCcwDotIcon,
+  ActivityIcon,
   UserIcon,
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
@@ -180,6 +182,14 @@ export const Actions = ({ registerCallback, focusedSidebarIndex }: ActionsProps)
               <DropdownMenuItem onClick={() => setMode("settings")}>
                 <CogIcon />
                 Settings
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setMode("vocal-calibration")}>
+                <MicVocalIcon />
+                Voice Calibration
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setMode("vocal-warmups")}>
+                <ActivityIcon />
+                Vocal Warmups
               </DropdownMenuItem>
               <DropdownMenuItem onClick={() => setMode("update")}>
                 <DownloadIcon />

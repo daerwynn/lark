@@ -12,6 +12,11 @@ import { usePitchScoring } from "@/hooks/use-pitch-scoring";
 import { usePlaybackConfigPersist } from "@/hooks/playback/use-playback-config-persist";
 import type { PitchSeries } from "@/lib/pitch/state";
 import { practiceSettingsFromConfig } from "@/lib/practice/practice-settings";
+import {
+  effectiveMicLatencyMs,
+  vocalCalibrationMatchesDevice,
+} from "@/lib/practice/vocal-calibration";
+import { useProfiles } from "@/queries/use-profiles";
 import type { AppConfig } from "@/types/AppConfig";
 import {
   createContext,
@@ -62,6 +67,7 @@ export function PlaybackMicProvider({ config, children }: PlaybackMicProviderPro
   const { isReady, isPlaying, paused, duration } = usePlaybackTransportState();
   const { subscribe, getVocalsBuffer } = usePlaybackTransportActions();
   const { segments } = usePlaybackTranscriptState();
+  const { data: profileStore } = useProfiles();
 
   const persistConfig = usePlaybackConfigPersist(config);
 
@@ -79,11 +85,11 @@ export function PlaybackMicProvider({ config, children }: PlaybackMicProviderPro
 
   const captureOptions = useMemo(() => ({ emit_audio: micMonitorEnabled }), [micMonitorEnabled]);
 
-  const { active: micCaptureActive, error: micCaptureError } = useMicCapture(
-    selectedMicId,
-    captureEnabled,
-    captureOptions,
-  );
+  const {
+    active: micCaptureActive,
+    error: micCaptureError,
+    deviceName: activeMicDeviceName,
+  } = useMicCapture(selectedMicId, captureEnabled, captureOptions);
   const {
     latestPitchFrame,
     active: micPitchActive,
@@ -91,15 +97,28 @@ export function PlaybackMicProvider({ config, children }: PlaybackMicProviderPro
   } = useMicPitch(micPitchEnabled);
   const reactiveRef = useMicReactive(micPitchEnabled);
   const practiceSettings = useMemo(() => practiceSettingsFromConfig(config), [config]);
+  const profileCalibration =
+    profileStore?.active == null
+      ? null
+      : (profileStore.vocal_calibrations[profileStore.active] ?? null);
+  const matchedCalibration = vocalCalibrationMatchesDevice(profileCalibration, activeMicDeviceName)
+    ? profileCalibration
+    : null;
+  const effectiveLatencyMs = effectiveMicLatencyMs({
+    profileCalibration,
+    activeDeviceName: activeMicDeviceName,
+    fallbackMs: practiceSettings.micLatencyMs,
+  });
 
   const { series, score } = usePitchScoring(
     {
       isReady,
       duration,
-      micLatencySec: practiceSettings.micLatencyMs / 1000,
+      micLatencySec: effectiveLatencyMs / 1000,
       getVocalsBuffer,
       subscribe,
       segments,
+      micPitchOffsetCents: matchedCalibration?.pitch_offset_cents ?? null,
     },
     latestPitchFrame,
   );
@@ -156,7 +175,7 @@ export function PlaybackMicProvider({ config, children }: PlaybackMicProviderPro
       micUserEnabled,
       micMonitorUserEnabled,
       selectedMicId,
-      micName: selectedMicId ?? "Default",
+      micName: activeMicDeviceName ?? selectedMicId ?? "Default",
       pitchScore: micReady ? score : null,
       rawScore: score,
       series,
@@ -168,6 +187,7 @@ export function PlaybackMicProvider({ config, children }: PlaybackMicProviderPro
     micUserEnabled,
     micMonitorUserEnabled,
     selectedMicId,
+    activeMicDeviceName,
     score,
     series,
     micCaptureActive,

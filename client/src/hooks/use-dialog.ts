@@ -8,6 +8,8 @@ export type DialogMode =
   | "create-profile"
   | "select-profile"
   | "settings"
+  | "vocal-calibration"
+  | "vocal-warmups"
   | "about"
   | "update"
   | "donate"

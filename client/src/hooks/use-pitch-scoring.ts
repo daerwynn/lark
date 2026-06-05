@@ -6,6 +6,7 @@ import {
   type PitchDetectionFrame,
 } from "@/lib/pitch/detect";
 import { LivePitchStabilizer } from "@/lib/pitch/stabilizer";
+import { applyPitchOffsetToFrame } from "@/lib/practice/vocal-calibration";
 import {
   computeSingableTime,
   freqToSemitone,
@@ -32,6 +33,7 @@ export interface PitchScoringSource {
   getVocalsBuffer: () => AudioBuffer | null;
   subscribe: (fn: TimeSubscriber) => () => void;
   segments?: Segment[];
+  micPitchOffsetCents?: number | null;
 }
 
 function median(values: number[]): number | null {
@@ -50,6 +52,7 @@ export function usePitchScoring(
     getVocalsBuffer,
     subscribe,
     segments = [],
+    micPitchOffsetCents = null,
   }: PitchScoringSource,
   micPitchFrame: PitchDetectionFrame | null,
 ) {
@@ -91,7 +94,7 @@ export function usePitchScoring(
 
     setSeries(bufferRef.current.snapshot());
     setScore(0);
-  }, [isReady, duration, getVocalsBuffer, chartNotes]);
+  }, [isReady, duration, getVocalsBuffer, chartNotes, micLatencySec, micPitchOffsetCents]);
 
   useEffect(() => {
     if (!isReady) {
@@ -110,13 +113,18 @@ export function usePitchScoring(
         return;
       }
 
+      const micSongTime = Math.max(0, t - micLatencySec);
+      if (micSongTime <= 0) {
+        return;
+      }
+
       const vocals = getVocalsBuffer();
-      const rawMic = micPitchFrameRef.current;
+      const rawMic = applyPitchOffsetToFrame(micPitchFrameRef.current, micPitchOffsetCents);
       const notes = chartNotesRef.current;
-      const chartNote = expectedNoteAtTime(notes, t, CHART_EXPECTED_TOLERANCE_SEC);
+      const chartNote = expectedNoteAtTime(notes, micSongTime, CHART_EXPECTED_TOLERANCE_SEC);
       let refHz: number | null = null;
 
-      if (vocals && sampleVocalsWindow(vocals, t, scratchRef.current, micLatencySec)) {
+      if (vocals && sampleVocalsWindow(vocals, micSongTime, scratchRef.current, 0)) {
         refHz = detectPitchFromSamplesRef(
           refDetector.current,
           scratchRef.current,
@@ -145,14 +153,14 @@ export function usePitchScoring(
           ? pitchSimilarity(comparisonHz, stabilizedMic)
           : 0;
 
-      bufferRef.current.tryPush(comparisonHz, stabilizedMic, sim, t);
-      scoringRef.current.accumulate(t, comparisonHz, stabilizedMic, sim);
+      bufferRef.current.tryPush(comparisonHz, stabilizedMic, sim, micSongTime);
+      scoringRef.current.accumulate(micSongTime, comparisonHz, stabilizedMic, sim);
       setSeries(bufferRef.current.snapshot());
       setScore(scoringRef.current.score());
     };
 
     return subscribe(run);
-  }, [isReady, subscribe, getVocalsBuffer, micLatencySec]);
+  }, [isReady, subscribe, getVocalsBuffer, micLatencySec, micPitchOffsetCents]);
 
   return { series, score };
 }

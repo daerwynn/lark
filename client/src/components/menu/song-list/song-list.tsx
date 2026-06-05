@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef } from "react";
 import { SongCard } from "./song-card";
 import { Filters } from "./filters";
 import { Progress } from "./progress";
+import { PracticeTools } from "@/components/menu/practice-tools";
 import { useAnalysisQueue, useSongs } from "@/queries/use-songs";
 import { useMenuFocus } from "@/contexts/menu-focus-context";
 import { useLibraryFilter } from "@/hooks/use-library-filter";
@@ -93,6 +94,7 @@ export const SongList = () => {
   return (
     <div className="flex min-h-0 w-full flex-1 justify-center">
       <div className="flex min-h-0 w-full flex-col gap-4 p-4 md:w-11/12 lg:w-4/5 xl:w-3/5">
+        <PracticeTools />
         <Filters />
         <div className="flex min-h-0 flex-1 flex-col gap-3">
           <Progress />

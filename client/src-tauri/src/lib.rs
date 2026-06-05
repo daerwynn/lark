@@ -24,7 +24,10 @@ use playback::{
     load_transcript, load_usdx_timing_info, preview_usdx_calibration, reset_usdx_timing_override,
     save_usdx_timing_override,
 };
-use profile::{add_score, create_profile, delete_profile, load_profiles, switch_profile};
+use profile::{
+    add_score, clear_vocal_calibration, create_profile, delete_profile, load_profiles,
+    save_vocal_calibration, switch_profile,
+};
 use scanner::{
     clear_library_source, jellyfin_login, jellyfin_ping, load_analysis_queue,
     load_library_menu_items, load_songs, load_songs_meta, navidrome_login, navidrome_ping,
@@ -103,6 +106,8 @@ pub fn run() {
             create_profile,
             delete_profile,
             add_score,
+            save_vocal_calibration,
+            clear_vocal_calibration,
             // Scanner
             trigger_scan,
             set_library_source,

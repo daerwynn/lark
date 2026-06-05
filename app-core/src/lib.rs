@@ -40,7 +40,7 @@ pub use playback::{
     prefetch_one_per_flavor, shift_key, shift_key_done_payload, shift_tempo,
     shift_tempo_done_payload,
 };
-pub use profile::ProfileStore;
+pub use profile::{ProfileStore, VocalCalibration};
 pub use scanner::start_scan;
 pub use song::SongOrigin;
 pub use source::{

@@ -1,4 +1,5 @@
 import { ProfileStore } from "@/types/ProfileStore";
+import type { VocalCalibration } from "@/types/VocalCalibration";
 import { invoke } from "./runtime";
 
 export const loadProfiles = async (): Promise<ProfileStore> => {
@@ -19,4 +20,15 @@ export const deleteProfile = async (name: string): Promise<void> => {
 
 export const addScore = async (songHash: string, score: number): Promise<void> => {
   return await invoke<void>("add_score", { songHash, score });
+};
+
+export const saveVocalCalibration = async (
+  profile: string,
+  calibration: VocalCalibration,
+): Promise<ProfileStore> => {
+  return await invoke<ProfileStore>("save_vocal_calibration", { profile, calibration });
+};
+
+export const clearVocalCalibration = async (profile: string): Promise<ProfileStore> => {
+  return await invoke<ProfileStore>("clear_vocal_calibration", { profile });
 };
