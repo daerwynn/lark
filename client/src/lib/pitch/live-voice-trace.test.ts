@@ -3,8 +3,10 @@ import { describe, expect, it } from "vitest";
 import type { PracticePitchFeedbackSettings } from "@/lib/practice/practice-settings";
 import { semitoneToFreq } from "./state";
 import {
+  buildRawLiveVoiceTracePoint,
   buildLiveVoiceTracePoint,
   computeRollingBaselineOctaveOffset,
+  foldMidiNearCenter,
   LiveVoiceDisplayStabilizer,
   normalizeMicPitchForExpected,
   shouldConnectLiveVoiceTracePoints,
@@ -19,6 +21,28 @@ const settings: PracticePitchFeedbackSettings = {
 };
 
 describe("live voice trace helpers", () => {
+  it("folds raw MIDI around a display center without snapping to that center", () => {
+    expect(foldMidiNearCenter(57, A4)).toBe(69);
+    expect(foldMidiNearCenter(58, A4)).toBe(70);
+    expect(foldMidiNearCenter(59, A4)).toBe(71);
+  });
+
+  it("builds raw live points without expected pitch metadata or scoring cents", () => {
+    const point = buildRawLiveVoiceTracePoint({
+      time: 1,
+      rawHz: semitoneToFreq(57),
+      displayMidi: 69,
+      clarity: 0.9,
+      rms: 0.04,
+    });
+
+    if (!point) throw new Error("expected point");
+    expect(point.rawMidi).toBeCloseTo(57);
+    expect(point.displayMidi).toBe(69);
+    expect(point.expectedMidi).toBeNull();
+    expect(point.centsFromExpected).toBeNull();
+  });
+
   it("normalizes expected A4 and raw A3 onto A4 with lower octave metadata", () => {
     expect(normalizeMicPitchForExpected(57, A4)).toEqual({
       displayMidi: 69,

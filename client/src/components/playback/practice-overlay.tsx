@@ -4,6 +4,7 @@ import type { PitchScoringDebug } from "@/hooks/use-pitch-scoring";
 import { shortcutHint, type PlaybackShortcutBindings } from "@/lib/playback/keybindings";
 import { formatPlaybackTime } from "@/lib/playback/transport-controls";
 import {
+  RAW_LIVE_VOICE_MAX_CONNECTION_GAP_SEC,
   shouldConnectLiveVoiceTracePoints,
   styleLiveVoiceTracePoint,
   type LiveVoiceTracePoint,
@@ -66,7 +67,8 @@ const LANE_PADDING_X = 20;
 const NOTE_COLOR = "rgba(91, 214, 255, 0.78)";
 const NOTE_EDGE = "rgba(255, 255, 255, 0.7)";
 const REF_COLOR = "rgba(91, 214, 255, 0.72)";
-const RAW_USER_COLOR = "rgba(185, 190, 198, 0.45)";
+const RAW_LIVE_VOICE_COLOR = "rgba(235, 255, 245, 0.98)";
+const CHART_RELATIVE_TRACE_COLOR = "rgba(255, 188, 83, 0.72)";
 const USER_GOOD = "rgba(78, 255, 126, 0.95)";
 const USER_OK = "rgba(255, 218, 82, 0.95)";
 const USER_LOW = "rgba(255, 88, 88, 0.95)";
@@ -330,22 +332,32 @@ function drawLiveVoiceTrace(
   currentTime: number,
   points: LiveVoiceTracePoint[],
   settings: PracticeSettings,
+  options: {
+    lineWidth?: number;
+    color?: string;
+    maxGapSec?: number;
+    useScoredStyle?: boolean;
+  } = {},
 ): void {
   ctx.save();
   ctx.lineCap = "round";
   ctx.lineJoin = "round";
-  ctx.lineWidth = 10;
+  ctx.lineWidth = options.lineWidth ?? 10;
 
   for (let i = 1; i < points.length; i++) {
     const prev = points[i - 1];
     const point = points[i];
-    if (!shouldConnectLiveVoiceTracePoints(prev, point)) continue;
+    if (!shouldConnectLiveVoiceTracePoints(prev, point, options.maxGapSec)) continue;
 
     const x1 = timeToX(prev.time, currentTime, size.width);
     const x2 = timeToX(point.time, currentTime, size.width);
     if ((x1 < 0 && x2 < 0) || (x1 > size.width && x2 > size.width)) continue;
 
-    ctx.strokeStyle = styleLiveVoiceTracePoint(point, settings.pitchFeedback).stroke;
+    ctx.strokeStyle =
+      options.color ??
+      (options.useScoredStyle
+        ? styleLiveVoiceTracePoint(point, settings.pitchFeedback).stroke
+        : RAW_LIVE_VOICE_COLOR);
     ctx.beginPath();
     ctx.moveTo(x1, pitchToY(prev.pitch, model, size.height));
     ctx.lineTo(x2, pitchToY(point.pitch, model, size.height));
@@ -360,7 +372,7 @@ function drawLatestLiveVoiceMarker(
   size: Size,
   model: PracticeLaneModel,
   currentTime: number,
-  settings: PracticeSettings,
+  color: string = RAW_LIVE_VOICE_COLOR,
 ): void {
   const point = model.latestLiveVoicePoint;
   if (!point) return;
@@ -369,9 +381,8 @@ function drawLatestLiveVoiceMarker(
   if (x < 0 || x > size.width) return;
 
   const y = pitchToY(point.pitch, model, size.height);
-  const style = styleLiveVoiceTracePoint(point, settings.pitchFeedback);
   ctx.save();
-  ctx.fillStyle = style.marker;
+  ctx.fillStyle = color;
   ctx.strokeStyle = "rgba(255,255,255,0.95)";
   ctx.lineWidth = 4;
   ctx.beginPath();
@@ -388,7 +399,7 @@ function drawLane(
   currentTime: number,
   loopRange: PracticeLoopRange | null,
   feedbackLevel: PitchFeedbackLevel | null,
-  showRawTrace: boolean,
+  showDebugTrace: boolean,
   settings: PracticeSettings,
 ): void {
   const ctx = setupCanvas(canvas, size);
@@ -409,15 +420,20 @@ function drawLane(
     });
   }
 
-  if (showRawTrace) {
-    drawTrace(ctx, size, model, currentTime, model.rawUserTrace, {
+  drawLiveVoiceTrace(ctx, size, model, currentTime, model.rawLiveVoiceTrace, settings, {
+    lineWidth: 10,
+    color: RAW_LIVE_VOICE_COLOR,
+    maxGapSec: RAW_LIVE_VOICE_MAX_CONNECTION_GAP_SEC,
+  });
+
+  if (showDebugTrace) {
+    drawLiveVoiceTrace(ctx, size, model, currentTime, model.chartRelativeVoiceTrace, settings, {
       lineWidth: 3,
-      color: RAW_USER_COLOR,
+      color: CHART_RELATIVE_TRACE_COLOR,
     });
   }
 
-  drawLiveVoiceTrace(ctx, size, model, currentTime, model.liveVoiceTrace, settings);
-  drawLatestLiveVoiceMarker(ctx, size, model, currentTime, settings);
+  drawLatestLiveVoiceMarker(ctx, size, model, currentTime);
 }
 
 function SourceLabel({ source }: { source: PracticeLaneModel["expectedSource"] }) {
@@ -442,6 +458,12 @@ function practiceDebugEnabled(): boolean {
   } catch {
     return false;
   }
+}
+
+function countLiveVoicePointsInWindow(points: LiveVoiceTracePoint[], currentTime: number): number {
+  const start = currentTime - PRACTICE_WINDOW_BEFORE;
+  const end = currentTime + PRACTICE_WINDOW_AFTER;
+  return points.filter((point) => point.time >= start && point.time <= end).length;
 }
 
 function segmentTimingSignature(segments: Segment[]): string {
@@ -608,6 +630,11 @@ function PracticeOverlayImpl({
       : latestLiveAge <= 0.35
         ? "Mic: pitch detected"
         : "Mic: no pitch";
+  const rawTracePointsInWindow = countLiveVoicePointsInWindow(model.rawLiveVoiceTrace, currentTime);
+  const scoredTracePointsInWindow = countLiveVoicePointsInWindow(
+    model.chartRelativeVoiceTrace,
+    currentTime,
+  );
 
   return (
     <div className="pointer-events-none absolute inset-0 z-10 flex flex-col bg-black/62 px-8 pt-24 pb-40 text-white">
@@ -723,13 +750,20 @@ function PracticeOverlayImpl({
         <div className="pointer-events-auto absolute bottom-28 left-8 z-20 max-w-xl rounded-sm border border-white/18 bg-black/82 p-3 font-mono text-xs leading-relaxed text-white/75">
           <div>time {formatPlaybackTime(currentTime)}</div>
           <div>
-            live{" "}
+            raw trace points {rawTracePointsInWindow} scored trace points{" "}
+            {scoredTracePointsInWindow}
+          </div>
+          <div>
+            raw live{" "}
             {model.latestLiveVoicePoint
               ? formatPlaybackTime(model.latestLiveVoicePoint.time)
               : "--"}{" "}
             /{" "}
-            {model.latestLiveVoicePoint ? model.latestLiveVoicePoint.displayMidi.toFixed(2) : "--"}{" "}
-            st
+            {model.latestLiveVoicePoint
+              ? `${Math.round(model.latestLiveVoicePoint.rawHz)}Hz / ${model.latestLiveVoicePoint.rawMidi.toFixed(
+                  2,
+                )} raw / ${model.latestLiveVoicePoint.displayMidi.toFixed(2)} display st`
+              : "--"}
           </div>
           <div>
             note{" "}
@@ -740,22 +774,28 @@ function PracticeOverlayImpl({
               : "--"}
           </div>
           <div>
-            cents {model.latestLiveCentsDifference == null ? "--" : model.latestLiveCentsDifference}
+            expected exists={String(model.currentExpectedNote != null)} scored comparison=
+            {String(micDebug.comparisonAvailable)}
           </div>
           <div>
-            display{" "}
-            {model.latestLiveVoicePoint
-              ? `${model.latestLiveVoicePoint.displayMidi.toFixed(2)} st`
+            scored cents{" "}
+            {model.latestLiveCentsDifference == null ? "--" : model.latestLiveCentsDifference}
+          </div>
+          <div>
+            scored display{" "}
+            {model.latestChartRelativeVoicePoint
+              ? `${model.latestChartRelativeVoicePoint.displayMidi.toFixed(2)} st`
               : "--"}{" "}
             expected{" "}
-            {model.latestLiveVoicePoint?.expectedMidi == null
+            {model.latestChartRelativeVoicePoint?.expectedMidi == null
               ? "--"
-              : `${model.latestLiveVoicePoint.expectedMidi.toFixed(2)} st`}
+              : `${model.latestChartRelativeVoicePoint.expectedMidi.toFixed(2)} st`}
           </div>
           <div>
-            octave abs {model.latestLiveVoicePoint?.absoluteOctaveOffsetFromExpected ?? "--"}{" "}
-            baseline {model.latestLiveVoicePoint?.baselineOctaveOffset ?? "--"} relative{" "}
-            {model.latestLiveVoicePoint?.baselineRelativeOctaveOffset ?? "--"}
+            scored octave abs{" "}
+            {model.latestChartRelativeVoicePoint?.absoluteOctaveOffsetFromExpected ?? "--"} baseline{" "}
+            {model.latestChartRelativeVoicePoint?.baselineOctaveOffset ?? "--"} relative{" "}
+            {model.latestChartRelativeVoicePoint?.baselineRelativeOctaveOffset ?? "--"}
           </div>
           <div>
             pitch offset{" "}
@@ -801,11 +841,14 @@ function PracticeOverlayImpl({
             {micDebug.dropReason ?? "--"}
           </div>
           <div>
-            scoring differs=
+            raw/scored differs=
             {String(
               model.latestLiveVoicePoint != null &&
-                micDebug.stabilizedMidi != null &&
-                Math.abs(model.latestLiveVoicePoint.displayMidi - micDebug.stabilizedMidi) > 0.01,
+                model.latestChartRelativeVoicePoint != null &&
+                Math.abs(
+                  model.latestLiveVoicePoint.displayMidi -
+                    model.latestChartRelativeVoicePoint.displayMidi,
+                ) > 0.01,
             )}
           </div>
           <div>

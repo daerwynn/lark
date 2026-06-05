@@ -60,6 +60,15 @@ export interface BuildLiveVoicePointArgs {
   traceBreak?: boolean;
 }
 
+export interface BuildRawLiveVoicePointArgs {
+  time: number;
+  rawHz: number | null | undefined;
+  displayMidi?: number | null | undefined;
+  clarity?: number | null;
+  rms?: number | null;
+  traceBreak?: boolean;
+}
+
 export interface LiveVoiceTraceStyle {
   accuracy: LiveVoiceAccuracy;
   register: LiveVoiceRegister;
@@ -70,6 +79,7 @@ export interface LiveVoiceTraceStyle {
 export const LIVE_VOICE_BASELINE_SAMPLE_COUNT = 45;
 export const LIVE_VOICE_BASELINE_MAX_CENTS = 150;
 export const LIVE_VOICE_MAX_CONNECTION_GAP_SEC = 0.15;
+export const RAW_LIVE_VOICE_MAX_CONNECTION_GAP_SEC = 0.25;
 export const LIVE_VOICE_MISSING_HOLD_SEC = 0.25;
 export const LIVE_VOICE_JUMP_THRESHOLD_ST = 4;
 export const LIVE_VOICE_CONFIRMED_JUMP_FRAMES = 2;
@@ -107,6 +117,53 @@ export function normalizeMicPitchForExpected(
     absoluteOctaveOffsetFromExpected,
     baselineOctaveOffset,
     baselineRelativeOctaveOffset,
+  };
+}
+
+export function foldMidiNearCenter(rawMidi: number, centerMidi: number | null | undefined): number {
+  if (!Number.isFinite(rawMidi) || typeof centerMidi !== "number" || !Number.isFinite(centerMidi)) {
+    return rawMidi;
+  }
+
+  return rawMidi + Math.round((centerMidi - rawMidi) / 12) * 12;
+}
+
+export function buildRawLiveVoiceTracePoint({
+  time,
+  rawHz,
+  displayMidi,
+  clarity = null,
+  rms = null,
+  traceBreak = false,
+}: BuildRawLiveVoicePointArgs): LiveVoiceTracePoint | null {
+  if (!Number.isFinite(time) || !isFinitePositive(rawHz)) {
+    return null;
+  }
+
+  const rawMidi = freqToSemitone(rawHz);
+  const pitch =
+    typeof displayMidi === "number" && Number.isFinite(displayMidi) ? displayMidi : rawMidi;
+
+  return {
+    time,
+    songTimeSec: time,
+    rawHz,
+    rawMidi,
+    rawDisplayMidi: pitch,
+    displayMidi: pitch,
+    stableHz: semitoneToFreq(pitch),
+    stableMidi: pitch,
+    expectedMidi: null,
+    centsFromExpected: null,
+    absoluteOctaveOffsetFromExpected: null,
+    baselineOctaveOffset: null,
+    baselineRelativeOctaveOffset: null,
+    clarity,
+    rms,
+    voiced: true,
+    traceBreak,
+    accepted: true,
+    pitch,
   };
 }
 

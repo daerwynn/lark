@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { shouldDisplayMainMicTrace, shouldScoreMainMicTrace } from "./mic-trace-visibility";
 
 describe("mic trace visibility", () => {
-  it("shows an unscored main trace when a chart note exists before pitch lock", () => {
+  it("shows an unscored chart-relative trace when a chart note exists before pitch lock", () => {
     const input = {
       chartNoteAvailable: true,
       comparisonHz: null,
@@ -14,7 +14,7 @@ describe("mic trace visibility", () => {
     expect(shouldScoreMainMicTrace(input)).toBe(false);
   });
 
-  it("hides the main trace when there is no expected pitch target", () => {
+  it("hides the chart-relative trace when there is no expected pitch target", () => {
     const input = {
       chartNoteAvailable: false,
       comparisonHz: null,

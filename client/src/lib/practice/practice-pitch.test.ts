@@ -305,12 +305,16 @@ describe("practice pitch adapter", () => {
     });
 
     expect(model.userTrace[0].pitch).toBeCloseTo(72);
+    expect(model.liveVoiceTrace).toBe(model.rawLiveVoiceTrace);
     expect(model.liveVoiceTrace[0].displayMidi).toBeCloseTo(69);
-    expect(model.liveVoiceTrace[0].absoluteOctaveOffsetFromExpected).toBe(-1);
+    expect(model.liveVoiceTrace[0].rawMidi).toBeCloseTo(57);
+    expect(model.liveVoiceTrace[0].expectedMidi).toBeNull();
+    expect(model.chartRelativeVoiceTrace[0].displayMidi).toBeCloseTo(69);
+    expect(model.chartRelativeVoiceTrace[0].absoluteOctaveOffsetFromExpected).toBe(-1);
     expect(model.latestLiveCentsDifference).toBe(0);
   });
 
-  it("does not create a main live voice point during chart gaps", () => {
+  it("keeps the raw live voice trace visible during chart gaps", () => {
     const model = buildPracticeLaneModel({
       segments: [
         {
@@ -334,7 +338,9 @@ describe("practice pitch adapter", () => {
       currentTime: 2.5,
     });
 
-    expect(model.liveVoiceTrace).toHaveLength(0);
+    expect(model.liveVoiceTrace).toHaveLength(1);
+    expect(model.liveVoiceTrace[0].displayMidi).toBeCloseTo(69);
+    expect(model.chartRelativeVoiceTrace).toHaveLength(0);
   });
 
   it("keeps live voice trace connected across brief invalid frames", () => {
@@ -365,7 +371,7 @@ describe("practice pitch adapter", () => {
     expect(model.liveVoiceTrace[1].traceBreak).toBe(false);
   });
 
-  it("rejects raw one-frame outliers from the main live voice trace", () => {
+  it("preserves raw pitch contour instead of snapping every point to the expected note", () => {
     const model = buildPracticeLaneModel({
       segments: [
         {
@@ -378,20 +384,23 @@ describe("practice pitch adapter", () => {
       series: {
         times: [1, 1.03, 1.06],
         refPitches: [semitoneToFreq(69), semitoneToFreq(69), semitoneToFreq(69)],
-        userPitches: [semitoneToFreq(69), semitoneToFreq(75), semitoneToFreq(69)],
-        rawMicHz: [semitoneToFreq(69), semitoneToFreq(75), semitoneToFreq(69)],
-        rawMicMidi: [69, 75, 69],
+        userPitches: [semitoneToFreq(69), semitoneToFreq(70), semitoneToFreq(71)],
+        rawMicHz: [semitoneToFreq(57), semitoneToFreq(58), semitoneToFreq(59)],
+        rawMicMidi: [57, 58, 59],
         rawMicClarity: [0.9, 0.9, 0.9],
         rawMicRms: [0.05, 0.05, 0.05],
         rawMicVoiced: [true, true, true],
-        similarities: [1, 0, 1],
+        similarities: [1, 0.8, 0.6],
       },
       currentTime: 1.06,
     });
 
     expect(model.rawUserTrace).toHaveLength(3);
-    expect(model.liveVoiceTrace).toHaveLength(2);
-    expect(model.liveVoiceTrace.map((point) => Math.round(point.displayMidi))).toEqual([69, 69]);
+    expect(model.liveVoiceTrace).toHaveLength(3);
+    expect(model.liveVoiceTrace.map((point) => Math.round(point.displayMidi))).toEqual([
+      69, 70, 71,
+    ]);
+    expect(model.liveVoiceTrace.every((point) => point.expectedMidi == null)).toBe(true);
   });
 
   it("carries trace breaks across skipped null pitch samples", () => {
@@ -427,6 +436,10 @@ describe("practice pitch adapter", () => {
         refPitches: [null],
         userPitches: [null],
         rawUserPitches: [semitoneToFreq(60)],
+        rawMicHz: [semitoneToFreq(60)],
+        rawMicClarity: [0.9],
+        rawMicRms: [0.05],
+        rawMicVoiced: [true],
         similarities: [0],
       },
       currentTime: 1,
@@ -435,6 +448,9 @@ describe("practice pitch adapter", () => {
     expect(model.expectedSource).toBe("none");
     expect(model.userTrace).toHaveLength(0);
     expect(model.rawUserTrace).toHaveLength(1);
+    expect(model.liveVoiceTrace).toHaveLength(1);
+    expect(model.liveVoiceTrace[0].displayMidi).toBeCloseTo(60);
+    expect(model.chartRelativeVoiceTrace).toHaveLength(0);
   });
 
   it("computes expected-vs-mic cents differences", () => {
