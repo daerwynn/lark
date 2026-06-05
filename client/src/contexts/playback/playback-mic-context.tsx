@@ -28,6 +28,7 @@ import {
   usePlaybackTransportActions,
   usePlaybackTransportState,
 } from "./playback-transport-context";
+import { usePlaybackTranscriptState } from "./playback-transcript-context";
 
 export interface PlaybackMicState {
   micUserEnabled: boolean;
@@ -60,6 +61,7 @@ interface PlaybackMicProviderProps {
 export function PlaybackMicProvider({ config, children }: PlaybackMicProviderProps) {
   const { isReady, isPlaying, paused, duration } = usePlaybackTransportState();
   const { subscribe, getVocalsBuffer } = usePlaybackTransportActions();
+  const { segments } = usePlaybackTranscriptState();
 
   const persistConfig = usePlaybackConfigPersist(config);
 
@@ -83,7 +85,7 @@ export function PlaybackMicProvider({ config, children }: PlaybackMicProviderPro
     captureOptions,
   );
   const {
-    latestPitch,
+    latestPitchFrame,
     active: micPitchActive,
     error: micPitchError,
   } = useMicPitch(micPitchEnabled);
@@ -97,8 +99,9 @@ export function PlaybackMicProvider({ config, children }: PlaybackMicProviderPro
       micLatencySec: practiceSettings.micLatencyMs / 1000,
       getVocalsBuffer,
       subscribe,
+      segments,
     },
-    latestPitch,
+    latestPitchFrame,
   );
 
   const micErrorShown = useRef(false);

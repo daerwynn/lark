@@ -10,7 +10,13 @@ import {
   REF_RMS_GATE,
 } from "./constants";
 
-function rms(samples: ArrayLike<number>): number {
+export interface PitchDetectionFrame {
+  hz: number;
+  clarity: number;
+  rms: number;
+}
+
+export function measureRms(samples: ArrayLike<number>): number {
   if (samples.length === 0) return 0;
   let sum = 0;
   for (let i = 0; i < samples.length; i++) {
@@ -38,7 +44,7 @@ export function detectPitchFromSamplesRef(
   if (samples.length !== PITCH_WINDOW_SAMPLES) {
     throw new Error(`Expected ${PITCH_WINDOW_SAMPLES} samples`);
   }
-  if (rms(samples) < REF_RMS_GATE) {
+  if (measureRms(samples) < REF_RMS_GATE) {
     return null;
   }
   const [hz, clarity] = detector.findPitch(samples, sampleRate);
@@ -56,10 +62,19 @@ export function detectPitchFromSamplesMic(
   samples: Float32Array,
   sampleRate: number,
 ): number | null {
+  return detectPitchFrameFromSamplesMic(detector, samples, sampleRate)?.hz ?? null;
+}
+
+export function detectPitchFrameFromSamplesMic(
+  detector: PitchDetector<Float32Array>,
+  samples: Float32Array,
+  sampleRate: number,
+): PitchDetectionFrame | null {
   if (samples.length !== PITCH_WINDOW_SAMPLES) {
     throw new Error(`Expected ${PITCH_WINDOW_SAMPLES} samples`);
   }
-  if (rms(samples) < MIC_RMS_GATE) {
+  const rms = measureRms(samples);
+  if (rms < MIC_RMS_GATE) {
     return null;
   }
   const [hz, clarity] = detector.findPitch(samples, sampleRate);
@@ -69,5 +84,5 @@ export function detectPitchFromSamplesMic(
   if (hz < MIN_PITCH_HZ || hz > MAX_PITCH_HZ) {
     return null;
   }
-  return hz;
+  return { hz, clarity, rms };
 }

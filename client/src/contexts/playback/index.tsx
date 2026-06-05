@@ -1,6 +1,6 @@
 /**
- * Composite playback provider tree. Order matters: theme/mic/transcript all
- * read from transport, and mic also needs theme indirectly via the song.
+ * Composite playback provider tree. Order matters: theme/transcript/mic all
+ * read from transport, and mic reads transcript segments for chart-aware scoring.
  */
 
 import type { AppConfig } from "@/types/AppConfig";
@@ -28,11 +28,9 @@ export function PlaybackProviders({ song, config, children }: PlaybackProvidersP
       initialPlaybackRate={clampPlaybackRate(config?.practice_playback_rate ?? 1)}
     >
       <PlaybackThemeProvider song={song} config={config}>
-        <PlaybackMicProvider config={config}>
-          <PlaybackTranscriptProvider fileHash={song.file_hash}>
-            {children}
-          </PlaybackTranscriptProvider>
-        </PlaybackMicProvider>
+        <PlaybackTranscriptProvider fileHash={song.file_hash}>
+          <PlaybackMicProvider config={config}>{children}</PlaybackMicProvider>
+        </PlaybackTranscriptProvider>
       </PlaybackThemeProvider>
     </PlaybackTransportProvider>
   );

@@ -5,7 +5,11 @@ import {
 } from "@/bridge/microphone";
 import { useMicSamples } from "@/hooks/use-mic-samples";
 import { PITCH_WINDOW_SAMPLES } from "@/lib/pitch/constants";
-import { createMicPitchDetector, detectPitchFromSamplesMic } from "@/lib/pitch/detect";
+import {
+  createMicPitchDetector,
+  detectPitchFrameFromSamplesMic,
+  type PitchDetectionFrame,
+} from "@/lib/pitch/detect";
 import { SampleRing } from "@/lib/mic/sample-ring";
 import type { MicrophoneInfo } from "@/types/MicrophoneInfo";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -46,7 +50,7 @@ export function useMicDevices(adapter: MicrophoneAdapter = defaultAdapter) {
 }
 
 export function useMicPitch(enabled: boolean) {
-  const [latestPitch, setLatestPitch] = useState<number | null>(null);
+  const [latestPitchFrame, setLatestPitchFrame] = useState<PitchDetectionFrame | null>(null);
   const [active, setActive] = useState(false);
   const ringRef = useRef<SampleRing | null>(null);
   const sampleRateRef = useRef(0);
@@ -62,7 +66,7 @@ export function useMicPitch(enabled: boolean) {
 
   useEffect(() => {
     if (!enabled) {
-      setLatestPitch(null);
+      setLatestPitchFrame(null);
       setActive(false);
       ringRef.current?.reset();
       sampleRateRef.current = 0;
@@ -78,20 +82,25 @@ export function useMicPitch(enabled: boolean) {
       const sr = sampleRateRef.current;
       if (!ring || sr === 0) return;
       if (!ring.readMostRecent(window)) return;
-      const hz = detectPitchFromSamplesMic(detector, window, sr);
-      setLatestPitch(hz);
+      const frame = detectPitchFrameFromSamplesMic(detector, window, sr);
+      setLatestPitchFrame(frame);
     };
 
     const id = setInterval(tick, PITCH_TICK_MS);
 
     return () => {
       clearInterval(id);
-      setLatestPitch(null);
+      setLatestPitchFrame(null);
       setActive(false);
     };
   }, [enabled]);
 
-  return { latestPitch, active, error: null as string | null };
+  return {
+    latestPitch: latestPitchFrame?.hz ?? null,
+    latestPitchFrame,
+    active,
+    error: null as string | null,
+  };
 }
 
 export function useMicCapture(

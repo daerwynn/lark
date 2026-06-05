@@ -151,57 +151,56 @@ function PlaybackHudImpl({
           </div>
         </div>
 
-        <div className="flex flex-col items-end">
-          <div className="flex items-center gap-2">
-            <div className={`text-lg text-white${pitchScore ? "" : "/50"}`}>
-              Score: {pitchScore ?? "--"}
-            </div>
-            {onOpenSettings && (
-              <button
-                type="button"
-                className="pointer-events-auto flex size-10 items-center justify-center rounded-sm border border-white/30 bg-black/25 text-white/90 transition-colors hover:bg-white/10"
-                aria-label="Open playback settings"
-                aria-pressed={settingsOpen}
-                onClick={onOpenSettings}
-              >
-                <CogIcon className="size-6" />
-              </button>
-            )}
-          </div>
+        {onOpenSettings && (
           <button
             type="button"
-            className="pointer-events-auto mt-1 rounded-sm border border-white/30 bg-black/25 px-2.5 py-1 text-sm font-medium text-white/90 transition-colors hover:bg-white/10"
-            aria-pressed={practiceMode}
-            onClick={onTogglePracticeMode}
+            className="pointer-events-auto flex size-10 items-center justify-center rounded-sm border border-white/30 bg-black/25 text-white/90 transition-colors hover:bg-white/10"
+            aria-label="Open playback settings"
+            aria-pressed={settingsOpen}
+            onClick={onOpenSettings}
           >
-            Practice: {practiceMode ? "ON" : "OFF"} {shortcutHint(keybindings, "practiceMode")}
+            <CogIcon className="size-6" />
           </button>
-          {usdxTimingAvailable && (
-            <button
-              type="button"
-              className="pointer-events-auto mt-1 rounded-sm border border-white/30 bg-black/25 px-2.5 py-1 text-sm font-medium text-white/90 transition-colors hover:bg-white/10"
-              aria-pressed={usdxTimingOpen}
-              onClick={onToggleUsdxTiming}
-            >
-              USDX Timing: {usdxTimingOpen ? "ON" : "OFF"} {shortcutHint(keybindings, "usdxTiming")}
-            </button>
-          )}
-          <HintText>{formatGuideText(guideVolume, keybindings)}</HintText>
-          <HintText>
-            Volume: {formatPlaybackVolume(playbackVolume)}{" "}
-            {shortcutListHint(keybindings, ["volumeUp", "volumeDown"])}
-          </HintText>
-          <HintText>
-            Mic: {micUserEnabled ? micName : "OFF"}{" "}
-            {shortcutListHint(keybindings, ["micToggle", "micCycle"])}
-          </HintText>
-          <HintText>
-            Monitor: {micMonitorUserEnabled ? "ON" : "OFF"}{" "}
-            {shortcutHint(keybindings, "micMonitorToggle")}
-          </HintText>
-          <HintText>{formatThemeText(themeIndex, videoFlavor, keybindings)}</HintText>
-          <HintText>{shortcutHint(keybindings, "pauseMenu")} Back</HintText>
+        )}
+      </div>
+
+      <div className="pointer-events-auto absolute bottom-[8.5rem] left-4 z-20 flex max-w-[min(32rem,calc(100vw-2rem))] flex-col items-start rounded-sm border border-white/15 bg-black/72 px-3 py-2 text-left shadow-2xl shadow-black/45 backdrop-blur">
+        <div className={`text-lg text-white${pitchScore ? "" : "/50"}`}>
+          Score: {pitchScore ?? "--"}
         </div>
+        <button
+          type="button"
+          className="mt-1 rounded-sm border border-white/30 bg-black/25 px-2.5 py-1 text-sm font-medium text-white/90 transition-colors hover:bg-white/10"
+          aria-pressed={practiceMode}
+          onClick={onTogglePracticeMode}
+        >
+          Practice: {practiceMode ? "ON" : "OFF"} {shortcutHint(keybindings, "practiceMode")}
+        </button>
+        {usdxTimingAvailable && (
+          <button
+            type="button"
+            className="mt-1 rounded-sm border border-white/30 bg-black/25 px-2.5 py-1 text-sm font-medium text-white/90 transition-colors hover:bg-white/10"
+            aria-pressed={usdxTimingOpen}
+            onClick={onToggleUsdxTiming}
+          >
+            USDX Timing: {usdxTimingOpen ? "ON" : "OFF"} {shortcutHint(keybindings, "usdxTiming")}
+          </button>
+        )}
+        <HintText>{formatGuideText(guideVolume, keybindings)}</HintText>
+        <HintText>
+          Volume: {formatPlaybackVolume(playbackVolume)}{" "}
+          {shortcutListHint(keybindings, ["volumeUp", "volumeDown"])}
+        </HintText>
+        <HintText>
+          Mic: {micUserEnabled ? micName : "OFF"}{" "}
+          {shortcutListHint(keybindings, ["micToggle", "micCycle"])}
+        </HintText>
+        <HintText>
+          Monitor: {micMonitorUserEnabled ? "ON" : "OFF"}{" "}
+          {shortcutHint(keybindings, "micMonitorToggle")}
+        </HintText>
+        <HintText>{formatThemeText(themeIndex, videoFlavor, keybindings)}</HintText>
+        <HintText>{shortcutHint(keybindings, "pauseMenu")} Back</HintText>
       </div>
 
       {showPixabayCredit && <p className={`${FOOTER_NOTE_CLASS} right-4`}>Videos by Pixabay</p>}
