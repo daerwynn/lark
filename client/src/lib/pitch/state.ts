@@ -22,12 +22,37 @@ export interface PitchSeries {
   scoringSimilarities?: number[];
   micFrameIds?: (number | null)[];
   traceBreaks?: boolean[];
+  liveDisplayPitch?: (number | null)[];
+  liveCentsFromExpected?: (number | null)[];
+  liveRegisterOffset?: (number | null)[];
+  liveKind?: (PitchLiveDisplayKind | null)[];
+  expectedChartPitchAtFrame?: (number | null)[];
+  liveExpectedRawMidi?: (number | null)[];
+  micToChartOffsetAtFrame?: (number | null)[];
+  micToChartOffsetSampleCount?: number[];
+  micToChartOffsetLocked?: boolean[];
+  livePointScored?: boolean[];
   similarities: number[];
   times: number[];
 }
 
 export interface PitchHistoryTimeEvent {
   isDiscontinuity?: boolean;
+}
+
+export type PitchLiveDisplayKind = "voiced" | "silence";
+
+export interface PitchLiveDisplayFrame {
+  displayPitch?: number | null;
+  centsFromExpected?: number | null;
+  registerOffset?: number | null;
+  kind?: PitchLiveDisplayKind | null;
+  expectedChartPitch?: number | null;
+  expectedRawMidi?: number | null;
+  micToChartOffset?: number | null;
+  micToChartOffsetSampleCount?: number;
+  micToChartOffsetLocked?: boolean;
+  scored?: boolean;
 }
 
 export function freqToSemitone(hz: number): number {
@@ -76,6 +101,16 @@ export class PitchStateBuffer {
   scoringSimilarities: number[] = [];
   micFrameIds: (number | null)[] = [];
   traceBreaks: boolean[] = [];
+  liveDisplayPitch: (number | null)[] = [];
+  liveCentsFromExpected: (number | null)[] = [];
+  liveRegisterOffset: (number | null)[] = [];
+  liveKind: (PitchLiveDisplayKind | null)[] = [];
+  expectedChartPitchAtFrame: (number | null)[] = [];
+  liveExpectedRawMidi: (number | null)[] = [];
+  micToChartOffsetAtFrame: (number | null)[] = [];
+  micToChartOffsetSampleCount: number[] = [];
+  micToChartOffsetLocked: boolean[] = [];
+  livePointScored: boolean[] = [];
   similarities: number[] = [];
   times: number[] = [];
   private smoothedRef: number | null = null;
@@ -97,6 +132,7 @@ export class PitchStateBuffer {
       rms?: number | null;
       voiced?: boolean;
     } = {},
+    liveDisplay: PitchLiveDisplayFrame = {},
   ): void {
     this.smoothedRef = ema(this.smoothedRef, refPitch);
     this.smoothedUser = ema(this.smoothedUser, userPitch);
@@ -120,6 +156,16 @@ export class PitchStateBuffer {
       this.scoringSimilarities.shift();
       this.micFrameIds.shift();
       this.traceBreaks.shift();
+      this.liveDisplayPitch.shift();
+      this.liveCentsFromExpected.shift();
+      this.liveRegisterOffset.shift();
+      this.liveKind.shift();
+      this.expectedChartPitchAtFrame.shift();
+      this.liveExpectedRawMidi.shift();
+      this.micToChartOffsetAtFrame.shift();
+      this.micToChartOffsetSampleCount.shift();
+      this.micToChartOffsetLocked.shift();
+      this.livePointScored.shift();
       this.similarities.shift();
       this.times.shift();
     }
@@ -136,6 +182,16 @@ export class PitchStateBuffer {
     this.scoringSimilarities.push(similarity);
     this.micFrameIds.push(micFrameId);
     this.traceBreaks.push(this.pendingTraceBreak);
+    this.liveDisplayPitch.push(liveDisplay.displayPitch ?? null);
+    this.liveCentsFromExpected.push(liveDisplay.centsFromExpected ?? null);
+    this.liveRegisterOffset.push(liveDisplay.registerOffset ?? null);
+    this.liveKind.push(liveDisplay.kind ?? null);
+    this.expectedChartPitchAtFrame.push(liveDisplay.expectedChartPitch ?? null);
+    this.liveExpectedRawMidi.push(liveDisplay.expectedRawMidi ?? null);
+    this.micToChartOffsetAtFrame.push(liveDisplay.micToChartOffset ?? null);
+    this.micToChartOffsetSampleCount.push(liveDisplay.micToChartOffsetSampleCount ?? 0);
+    this.micToChartOffsetLocked.push(liveDisplay.micToChartOffsetLocked ?? false);
+    this.livePointScored.push(liveDisplay.scored ?? false);
     this.pendingTraceBreak = false;
     this.similarities.push(similarity);
     this.times.push(time);
@@ -161,6 +217,16 @@ export class PitchStateBuffer {
       scoringSimilarities: [...this.scoringSimilarities],
       micFrameIds: [...this.micFrameIds],
       traceBreaks: [...this.traceBreaks],
+      liveDisplayPitch: [...this.liveDisplayPitch],
+      liveCentsFromExpected: [...this.liveCentsFromExpected],
+      liveRegisterOffset: [...this.liveRegisterOffset],
+      liveKind: [...this.liveKind],
+      expectedChartPitchAtFrame: [...this.expectedChartPitchAtFrame],
+      liveExpectedRawMidi: [...this.liveExpectedRawMidi],
+      micToChartOffsetAtFrame: [...this.micToChartOffsetAtFrame],
+      micToChartOffsetSampleCount: [...this.micToChartOffsetSampleCount],
+      micToChartOffsetLocked: [...this.micToChartOffsetLocked],
+      livePointScored: [...this.livePointScored],
       similarities: [...this.similarities],
       times: [...this.times],
     };
@@ -180,6 +246,16 @@ export class PitchStateBuffer {
     this.scoringSimilarities = [];
     this.micFrameIds = [];
     this.traceBreaks = [];
+    this.liveDisplayPitch = [];
+    this.liveCentsFromExpected = [];
+    this.liveRegisterOffset = [];
+    this.liveKind = [];
+    this.expectedChartPitchAtFrame = [];
+    this.liveExpectedRawMidi = [];
+    this.micToChartOffsetAtFrame = [];
+    this.micToChartOffsetSampleCount = [];
+    this.micToChartOffsetLocked = [];
+    this.livePointScored = [];
     this.similarities = [];
     this.times = [];
     this.smoothedRef = null;

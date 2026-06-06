@@ -14,17 +14,22 @@ export interface LiveVoiceTracePoint {
   displayMidi: number;
   stableHz: number | null;
   stableMidi: number | null;
+  expectedChartPitch: number | null;
   expectedMidi: number | null;
   centsFromExpected: number | null;
   absoluteOctaveOffsetFromExpected: number | null;
   baselineOctaveOffset: number | null;
   baselineRelativeOctaveOffset: number | null;
+  micToChartOffset: number | null;
+  micToChartOffsetSampleCount: number;
+  micToChartOffsetLocked: boolean;
   clarity: number | null;
   rms: number | null;
   voiced: boolean;
   kind: LiveVoiceTraceKind;
   traceBreak: boolean;
   accepted: boolean;
+  scored: boolean;
   dropReason?: string;
   pitch: number;
 }
@@ -174,6 +179,7 @@ export function buildRawLiveVoiceTracePoint({
     displayMidi: pitch,
     stableHz: semitoneToFreq(pitch),
     stableMidi: pitch,
+    expectedChartPitch: null,
     expectedMidi: normalized == null ? null : expectedMidiValue,
     centsFromExpected:
       normalized?.centsFromExpected ??
@@ -183,12 +189,16 @@ export function buildRawLiveVoiceTracePoint({
     absoluteOctaveOffsetFromExpected: normalized?.absoluteOctaveOffsetFromExpected ?? null,
     baselineOctaveOffset: normalized?.baselineOctaveOffset ?? null,
     baselineRelativeOctaveOffset: normalized?.baselineRelativeOctaveOffset ?? null,
+    micToChartOffset: null,
+    micToChartOffsetSampleCount: 0,
+    micToChartOffsetLocked: false,
     clarity,
     rms,
     voiced: true,
     kind: "voiced",
     traceBreak,
     accepted: true,
+    scored: false,
     pitch,
   };
 }
@@ -214,18 +224,23 @@ export function buildLiveVoiceSilencePoint({
     displayMidi,
     stableHz: null,
     stableMidi: null,
+    expectedChartPitch: null,
     expectedMidi:
       typeof expectedMidi === "number" && Number.isFinite(expectedMidi) ? expectedMidi : null,
     centsFromExpected: null,
     absoluteOctaveOffsetFromExpected: null,
     baselineOctaveOffset: null,
     baselineRelativeOctaveOffset: null,
+    micToChartOffset: null,
+    micToChartOffsetSampleCount: 0,
+    micToChartOffsetLocked: false,
     clarity,
     rms,
     voiced: false,
     kind: "silence",
     traceBreak,
     accepted: false,
+    scored: false,
     dropReason: "unvoiced",
     pitch: displayMidi,
   };
@@ -256,17 +271,22 @@ export function buildLiveVoiceTracePoint({
       displayMidi: rawMidi,
       stableHz: semitoneToFreq(rawMidi),
       stableMidi: rawMidi,
+      expectedChartPitch: null,
       expectedMidi: null,
       centsFromExpected: null,
       absoluteOctaveOffsetFromExpected: null,
       baselineOctaveOffset: null,
       baselineRelativeOctaveOffset: null,
+      micToChartOffset: null,
+      micToChartOffsetSampleCount: 0,
+      micToChartOffsetLocked: false,
       clarity,
       rms,
       voiced: true,
       kind: "voiced",
       traceBreak,
       accepted: true,
+      scored: false,
       pitch: rawMidi,
     };
   }
@@ -286,17 +306,22 @@ export function buildLiveVoiceTracePoint({
     displayMidi: normalized.displayMidi,
     stableHz: semitoneToFreq(normalized.displayMidi),
     stableMidi: normalized.displayMidi,
+    expectedChartPitch: null,
     expectedMidi,
     centsFromExpected: normalized.centsFromExpected,
     absoluteOctaveOffsetFromExpected: normalized.absoluteOctaveOffsetFromExpected,
     baselineOctaveOffset: normalized.baselineOctaveOffset,
     baselineRelativeOctaveOffset: normalized.baselineRelativeOctaveOffset,
+    micToChartOffset: null,
+    micToChartOffsetSampleCount: 0,
+    micToChartOffsetLocked: false,
     clarity,
     rms,
     voiced: true,
     kind: "voiced",
     traceBreak,
     accepted: true,
+    scored: false,
     pitch: normalized.displayMidi + laneShift,
   };
 }

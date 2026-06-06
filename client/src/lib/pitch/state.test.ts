@@ -37,13 +37,33 @@ describe("pitch state helpers", () => {
   it("stores raw mic fields separately from scoring pitch", () => {
     const buffer = new PitchStateBuffer();
 
-    buffer.tryPush(440, 441, 0.9, 0.1, 220, 3, {
-      hz: 220,
-      midi: 57,
-      clarity: 0.92,
-      rms: 0.04,
-      voiced: true,
-    });
+    buffer.tryPush(
+      440,
+      441,
+      0.9,
+      0.1,
+      220,
+      3,
+      {
+        hz: 220,
+        midi: 57,
+        clarity: 0.92,
+        rms: 0.04,
+        voiced: true,
+      },
+      {
+        displayPitch: 5,
+        centsFromExpected: 50,
+        registerOffset: 1,
+        kind: "voiced",
+        expectedChartPitch: 4.5,
+        expectedRawMidi: 64.5,
+        micToChartOffset: 60,
+        micToChartOffsetSampleCount: 8,
+        micToChartOffsetLocked: true,
+        scored: true,
+      },
+    );
 
     expect(buffer.snapshot()).toMatchObject({
       refPitches: [440],
@@ -58,6 +78,16 @@ describe("pitch state helpers", () => {
       scoringMicHz: [441],
       scoringSimilarities: [0.9],
       micFrameIds: [3],
+      liveDisplayPitch: [5],
+      liveCentsFromExpected: [50],
+      liveRegisterOffset: [1],
+      liveKind: ["voiced"],
+      expectedChartPitchAtFrame: [4.5],
+      liveExpectedRawMidi: [64.5],
+      micToChartOffsetAtFrame: [60],
+      micToChartOffsetSampleCount: [8],
+      micToChartOffsetLocked: [true],
+      livePointScored: [true],
     });
   });
 });

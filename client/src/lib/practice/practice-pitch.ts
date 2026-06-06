@@ -1,8 +1,6 @@
-import type { PitchSeries } from "@/lib/pitch/state";
+import type { PitchLiveDisplayKind, PitchSeries } from "@/lib/pitch/state";
 import { freqToSemitone, snapToRefOctave } from "@/lib/pitch/state";
 import {
-  buildLiveVoiceSilencePoint,
-  buildRawLiveVoiceTracePoint,
   buildLiveVoiceTracePoint,
   computeRollingBaselineOctaveOffset,
   LiveVoiceDisplayStabilizer,
@@ -23,8 +21,6 @@ const SEGMENT_LINGER_SEC = 0.75;
 const FALLBACK_SAMPLE_COUNT = 30;
 const CHART_PITCH_MATCH_TOLERANCE_SEC = 0.2;
 const STABLE_VERTICAL_PADDING_SEMITONES = 6;
-const SAFE_ABSOLUTE_MIDI_MIN = 24;
-const SAFE_ABSOLUTE_MIDI_MAX = 96;
 
 export type ExpectedPitchSource = "chart" | "reference" | "none";
 
@@ -223,19 +219,6 @@ function expectedMidiForNote(
   return calibration.midiOffset == null ? note.pitch : note.pitch + calibration.midiOffset;
 }
 
-function expectedMidiForRawTrace(
-  note: PracticeExpectedNote | null,
-  calibration: PracticePitchCalibration,
-): number | null {
-  if (!note) return null;
-  if (calibration.midiOffset != null) {
-    return note.pitch + calibration.midiOffset;
-  }
-  return note.pitch >= SAFE_ABSOLUTE_MIDI_MIN && note.pitch <= SAFE_ABSOLUTE_MIDI_MAX
-    ? note.pitch
-    : null;
-}
-
 function median(values: number[]): number | null {
   if (values.length === 0) return null;
   const sorted = [...values].sort((a, b) => a - b);
@@ -391,106 +374,128 @@ export function buildRawUserTrace(
   );
 }
 
-function chartPitchCenter(chartNotes: PracticeExpectedNote[]): number | null {
-  const values = chartNotes.map((note) => note.pitch).filter(isFiniteNumber);
-  if (values.length === 0) return null;
-  return (Math.min(...values) + Math.max(...values)) / 2;
-}
-
-function rawLiveLaneMapping(
-  rawMidi: number,
-  note: PracticeExpectedNote | null,
-  expectedMidi: number | null,
-): { pitch: number; centsFromExpected: number } | null {
-  if (!note || !isFiniteNumber(rawMidi)) return null;
-
-  if (expectedMidi != null) {
-    const octaveNormalizedRaw = snapToRefOctave(expectedMidi, rawMidi);
-    const difference = octaveNormalizedRaw - expectedMidi;
-    return {
-      pitch: note.pitch + difference,
-      centsFromExpected: Math.round(difference * 100),
-    };
-  }
-
-  const pitch = snapToRefOctave(note.pitch, rawMidi);
-  return {
-    pitch,
-    centsFromExpected: Math.round((pitch - note.pitch) * 100),
-  };
-}
-
 export function buildRawLiveVoiceTrace(
   series: PitchSeries,
   chartNotes: PracticeExpectedNote[],
   calibration: PracticePitchCalibration = computeChartPitchCalibration(series, chartNotes),
 ): LiveVoiceTracePoint[] {
-  const points: LiveVoiceTracePoint[] = [];
-  const hasRawMicData =
-    (series.rawMicHz?.length ?? 0) > 0 || (series.rawMicVoiced?.length ?? 0) > 0;
-  if (!hasRawMicData) return points;
+  void chartNotes;
+  void calibration;
 
-  let baselineOctaveOffset: number | null = null;
-  let lastDisplayPitch: number | null = null;
-  const chartCenter = chartPitchCenter(chartNotes);
+  const points: LiveVoiceTracePoint[] = [];
+  const hasStoredLiveDisplay =
+    (series.liveDisplayPitch?.length ?? 0) > 0 || (series.liveKind?.length ?? 0) > 0;
 
   for (let index = 0; index < series.times.length; index++) {
     const time = series.times[index];
     if (!isFiniteNumber(time)) continue;
 
-    const rawHz = series.rawMicHz?.[index] ?? null;
-    const voiced = series.rawMicVoiced?.[index] ?? rawHz != null;
-    const note = expectedNoteAtTime(chartNotes, time, 0);
-    const expectedMidi = expectedMidiForRawTrace(note, calibration);
-    const clarity = series.rawMicClarity?.[index] ?? null;
-    const rms = series.rawMicRms?.[index] ?? null;
-
-    if (voiced && isFiniteNumber(rawHz) && rawHz > 0) {
-      const rawMidi = freqToSemitone(rawHz);
-      const laneMapping = rawLiveLaneMapping(rawMidi, note, expectedMidi);
-      const displayMidi =
-        laneMapping?.pitch ??
-        (chartNotes.length > 0 ? (lastDisplayPitch ?? chartCenter ?? rawMidi) : rawMidi);
-      const point = buildRawLiveVoiceTracePoint({
-        time,
-        rawHz,
-        displayMidi,
-        expectedMidi,
-        centsFromExpected: laneMapping?.centsFromExpected ?? null,
-        baselineOctaveOffset,
-        clarity,
-        rms,
-      });
-      if (!point) continue;
-
-      points.push(point);
-      lastDisplayPitch = point.pitch;
-      baselineOctaveOffset = computeRollingBaselineOctaveOffset(points, baselineOctaveOffset);
-      const updatedPoint = points[points.length - 1];
-      if (updatedPoint && baselineOctaveOffset != null) {
-        updatedPoint.baselineOctaveOffset = baselineOctaveOffset;
-        updatedPoint.baselineRelativeOctaveOffset =
-          updatedPoint.absoluteOctaveOffsetFromExpected == null
-            ? null
-            : updatedPoint.absoluteOctaveOffsetFromExpected - baselineOctaveOffset;
-      }
+    if (hasStoredLiveDisplay) {
+      const point = storedLiveVoiceTracePoint(series, index, time);
+      if (point) points.push(point);
       continue;
     }
 
-    const silencePitch = lastDisplayPitch ?? note?.pitch ?? chartCenter ?? 60;
-    const silencePoint = buildLiveVoiceSilencePoint({
-      time,
-      displayMidi: silencePitch,
-      expectedMidi,
-      clarity,
-      rms,
-    });
-    if (silencePoint) {
-      points.push(silencePoint);
-    }
+    const point = legacyRawLiveVoiceTracePoint(series, index, time);
+    if (point) points.push(point);
   }
 
   return points;
+}
+
+function storedLiveVoiceTracePoint(
+  series: PitchSeries,
+  index: number,
+  time: number,
+): LiveVoiceTracePoint | null {
+  const displayPitch = series.liveDisplayPitch?.[index] ?? null;
+  if (!isFiniteNumber(displayPitch)) return null;
+
+  const kind = normalizeLiveKind(series.liveKind?.[index]);
+  const rawHz = kind === "voiced" ? (series.rawMicHz?.[index] ?? null) : null;
+  const storedRawMidi = series.rawMicMidi?.[index] ?? null;
+  const rawMidi = isFiniteNumber(storedRawMidi)
+    ? storedRawMidi
+    : isFiniteNumber(rawHz)
+      ? freqToSemitone(rawHz)
+      : null;
+
+  return {
+    time,
+    songTimeSec: time,
+    rawHz,
+    rawMidi,
+    rawDisplayMidi: displayPitch,
+    displayMidi: displayPitch,
+    stableHz: kind === "voiced" ? rawHz : null,
+    stableMidi: rawMidi,
+    expectedChartPitch: series.expectedChartPitchAtFrame?.[index] ?? null,
+    expectedMidi: series.liveExpectedRawMidi?.[index] ?? null,
+    centsFromExpected: series.liveCentsFromExpected?.[index] ?? null,
+    absoluteOctaveOffsetFromExpected: series.liveRegisterOffset?.[index] ?? null,
+    baselineOctaveOffset: null,
+    baselineRelativeOctaveOffset: null,
+    micToChartOffset: series.micToChartOffsetAtFrame?.[index] ?? null,
+    micToChartOffsetSampleCount: series.micToChartOffsetSampleCount?.[index] ?? 0,
+    micToChartOffsetLocked: series.micToChartOffsetLocked?.[index] ?? false,
+    clarity: series.rawMicClarity?.[index] ?? null,
+    rms: series.rawMicRms?.[index] ?? null,
+    voiced: kind === "voiced",
+    kind,
+    traceBreak: series.traceBreaks?.[index] ?? false,
+    accepted: kind === "voiced",
+    scored: series.livePointScored?.[index] ?? false,
+    dropReason: kind === "silence" ? "unvoiced" : undefined,
+    pitch: displayPitch,
+  };
+}
+
+function legacyRawLiveVoiceTracePoint(
+  series: PitchSeries,
+  index: number,
+  time: number,
+): LiveVoiceTracePoint | null {
+  const rawHz = series.rawMicHz?.[index] ?? null;
+  const voiced = series.rawMicVoiced?.[index] ?? rawHz != null;
+
+  if (voiced && isFiniteNumber(rawHz) && rawHz > 0) {
+    const rawMidi = series.rawMicMidi?.[index] ?? freqToSemitone(rawHz);
+    if (!isFiniteNumber(rawMidi)) return null;
+
+    return {
+      time,
+      songTimeSec: time,
+      rawHz,
+      rawMidi,
+      rawDisplayMidi: rawMidi,
+      displayMidi: rawMidi,
+      stableHz: rawHz,
+      stableMidi: rawMidi,
+      expectedChartPitch: null,
+      expectedMidi: null,
+      centsFromExpected: null,
+      absoluteOctaveOffsetFromExpected: null,
+      baselineOctaveOffset: null,
+      baselineRelativeOctaveOffset: null,
+      micToChartOffset: null,
+      micToChartOffsetSampleCount: 0,
+      micToChartOffsetLocked: false,
+      clarity: series.rawMicClarity?.[index] ?? null,
+      rms: series.rawMicRms?.[index] ?? null,
+      voiced: true,
+      kind: "voiced",
+      traceBreak: series.traceBreaks?.[index] ?? false,
+      accepted: true,
+      scored: false,
+      pitch: rawMidi,
+    };
+  }
+
+  return null;
+}
+
+function normalizeLiveKind(kind: PitchLiveDisplayKind | null | undefined): PitchLiveDisplayKind {
+  return kind === "silence" ? "silence" : "voiced";
 }
 
 export function buildChartRelativeVoiceTrace(
@@ -704,6 +709,16 @@ export function filterPitchSeriesSince(series: PitchSeries, startTime: number): 
   const scoringSimilarities: number[] = [];
   const micFrameIds: (number | null)[] = [];
   const traceBreaks: boolean[] = [];
+  const liveDisplayPitch: (number | null)[] = [];
+  const liveCentsFromExpected: (number | null)[] = [];
+  const liveRegisterOffset: (number | null)[] = [];
+  const liveKind: (PitchLiveDisplayKind | null)[] = [];
+  const expectedChartPitchAtFrame: (number | null)[] = [];
+  const liveExpectedRawMidi: (number | null)[] = [];
+  const micToChartOffsetAtFrame: (number | null)[] = [];
+  const micToChartOffsetSampleCount: number[] = [];
+  const micToChartOffsetLocked: boolean[] = [];
+  const livePointScored: boolean[] = [];
   const similarities: number[] = [];
   const times: number[] = [];
 
@@ -722,6 +737,16 @@ export function filterPitchSeriesSince(series: PitchSeries, startTime: number): 
     scoringSimilarities.push(series.scoringSimilarities?.[i] ?? series.similarities[i] ?? 0);
     micFrameIds.push(series.micFrameIds?.[i] ?? null);
     traceBreaks.push(series.traceBreaks?.[i] ?? false);
+    liveDisplayPitch.push(series.liveDisplayPitch?.[i] ?? null);
+    liveCentsFromExpected.push(series.liveCentsFromExpected?.[i] ?? null);
+    liveRegisterOffset.push(series.liveRegisterOffset?.[i] ?? null);
+    liveKind.push(series.liveKind?.[i] ?? null);
+    expectedChartPitchAtFrame.push(series.expectedChartPitchAtFrame?.[i] ?? null);
+    liveExpectedRawMidi.push(series.liveExpectedRawMidi?.[i] ?? null);
+    micToChartOffsetAtFrame.push(series.micToChartOffsetAtFrame?.[i] ?? null);
+    micToChartOffsetSampleCount.push(series.micToChartOffsetSampleCount?.[i] ?? 0);
+    micToChartOffsetLocked.push(series.micToChartOffsetLocked?.[i] ?? false);
+    livePointScored.push(series.livePointScored?.[i] ?? false);
     similarities.push(series.similarities[i] ?? 0);
     times.push(series.times[i]);
   }
@@ -740,6 +765,16 @@ export function filterPitchSeriesSince(series: PitchSeries, startTime: number): 
     scoringSimilarities,
     micFrameIds,
     traceBreaks,
+    liveDisplayPitch,
+    liveCentsFromExpected,
+    liveRegisterOffset,
+    liveKind,
+    expectedChartPitchAtFrame,
+    liveExpectedRawMidi,
+    micToChartOffsetAtFrame,
+    micToChartOffsetSampleCount,
+    micToChartOffsetLocked,
+    livePointScored,
     similarities,
     times,
   };

@@ -804,7 +804,11 @@ function PracticeOverlayImpl({
             latest voiced raw{" "}
             {latestVoicedPoint?.rawMidi == null ? "--" : latestVoicedPoint.rawMidi.toFixed(2)}{" "}
             display {latestVoicedPoint == null ? "--" : latestVoicedPoint.displayMidi.toFixed(2)}{" "}
-            expected{" "}
+            chart{" "}
+            {latestVoicedPoint?.expectedChartPitch == null
+              ? "--"
+              : latestVoicedPoint.expectedChartPitch.toFixed(2)}{" "}
+            expected raw{" "}
             {latestVoicedPoint?.expectedMidi == null
               ? "--"
               : latestVoicedPoint.expectedMidi.toFixed(2)}{" "}
@@ -813,6 +817,15 @@ function PracticeOverlayImpl({
               ? "--"
               : latestVoicedPoint.centsFromExpected}{" "}
             octave {latestVoicedPoint?.absoluteOctaveOffsetFromExpected ?? "--"}
+          </div>
+          <div>
+            live offset{" "}
+            {latestVoicedPoint?.micToChartOffset == null
+              ? "--"
+              : latestVoicedPoint.micToChartOffset.toFixed(2)}{" "}
+            samples {latestVoicedPoint?.micToChartOffsetSampleCount ?? "--"} locked=
+            {String(latestVoicedPoint?.micToChartOffsetLocked ?? false)} scored=
+            {String(latestVoicedPoint?.scored ?? false)}
           </div>
           <div>
             note{" "}
@@ -858,6 +871,19 @@ function PracticeOverlayImpl({
           </div>
           <div>
             mic active capture={String(micCaptureActive)} pitch={String(micPitchActive)}
+          </div>
+          <div>
+            live stored display{" "}
+            {micDebug.liveDisplayPitch == null ? "--" : micDebug.liveDisplayPitch.toFixed(2)} chart{" "}
+            {micDebug.expectedChartPitch == null ? "--" : micDebug.expectedChartPitch.toFixed(2)}{" "}
+            cents {micDebug.liveCentsFromExpected ?? "--"} register{" "}
+            {micDebug.liveRegisterOffset ?? "--"} kind {micDebug.liveKind ?? "--"}
+          </div>
+          <div>
+            live stored offset{" "}
+            {micDebug.micToChartOffset == null ? "--" : micDebug.micToChartOffset.toFixed(2)}{" "}
+            samples {micDebug.micToChartOffsetSampleCount} locked=
+            {String(micDebug.micToChartOffsetLocked)}
           </div>
           <div>
             frame id {micDebug.frameId ?? "--"} age{" "}

@@ -47,6 +47,39 @@ const series: PitchSeries = {
   similarities: [1, 0.8, 0, 0.25, 0.5],
 };
 
+function withLiveDisplay(
+  base: PitchSeries,
+  displayPitch: (number | null)[],
+  options: {
+    cents?: (number | null)[];
+    register?: (number | null)[];
+    kind?: ("voiced" | "silence" | null)[];
+    expectedChart?: (number | null)[];
+    expectedRaw?: (number | null)[];
+    offset?: (number | null)[];
+    sampleCount?: number[];
+    locked?: boolean[];
+    scored?: boolean[];
+  } = {},
+): PitchSeries {
+  const length = base.times.length;
+  const fill = <T>(value: T): T[] => Array.from({ length }, () => value);
+
+  return {
+    ...base,
+    liveDisplayPitch: displayPitch,
+    liveCentsFromExpected: options.cents ?? fill(null),
+    liveRegisterOffset: options.register ?? fill(null),
+    liveKind: options.kind ?? displayPitch.map((pitch) => (pitch == null ? "silence" : "voiced")),
+    expectedChartPitchAtFrame: options.expectedChart ?? fill(null),
+    liveExpectedRawMidi: options.expectedRaw ?? fill(null),
+    micToChartOffsetAtFrame: options.offset ?? fill(null),
+    micToChartOffsetSampleCount: options.sampleCount ?? fill(0),
+    micToChartOffsetLocked: options.locked ?? fill(false),
+    livePointScored: options.scored ?? fill(false),
+  };
+}
+
 describe("practice pitch adapter", () => {
   it("selects the active or nearest phrase", () => {
     expect(findPracticeSegmentIndex(segments, 2)).toBe(0);
@@ -387,17 +420,28 @@ describe("practice pitch adapter", () => {
           words: [{ word: "A", start: 1, end: 2, pitch: 69 }],
         },
       ],
-      series: {
-        times: [1.25],
-        refPitches: [semitoneToFreq(69)],
-        userPitches: [semitoneToFreq(60)],
-        rawMicHz: [semitoneToFreq(57)],
-        rawMicMidi: [57],
-        rawMicClarity: [0.9],
-        rawMicRms: [0.05],
-        rawMicVoiced: [true],
-        similarities: [0],
-      },
+      series: withLiveDisplay(
+        {
+          times: [1.25],
+          refPitches: [semitoneToFreq(69)],
+          userPitches: [semitoneToFreq(60)],
+          rawMicHz: [semitoneToFreq(57)],
+          rawMicMidi: [57],
+          rawMicClarity: [0.9],
+          rawMicRms: [0.05],
+          rawMicVoiced: [true],
+          similarities: [0],
+        },
+        [69],
+        {
+          cents: [0],
+          register: [-1],
+          expectedChart: [69],
+          expectedRaw: [69],
+          offset: [0],
+          locked: [true],
+        },
+      ),
       currentTime: 1.25,
     });
 
@@ -407,6 +451,7 @@ describe("practice pitch adapter", () => {
     expect(model.liveVoiceTrace[0].pitch).toBeCloseTo(69);
     expect(model.liveVoiceTrace[0].rawMidi).toBeCloseTo(57);
     expect(model.liveVoiceTrace[0].expectedMidi).toBe(69);
+    expect(model.liveVoiceTrace[0].expectedChartPitch).toBe(69);
     expect(model.liveVoiceTrace[0].absoluteOctaveOffsetFromExpected).toBe(-1);
     expect(model.chartRelativeVoiceTrace[0].displayMidi).toBeCloseTo(69);
     expect(model.chartRelativeVoiceTrace[0].absoluteOctaveOffsetFromExpected).toBe(-1);
@@ -423,17 +468,20 @@ describe("practice pitch adapter", () => {
           words: [{ word: "A", start: 1, end: 2, pitch: 69 }],
         },
       ],
-      series: {
-        times: [2.5],
-        refPitches: [null],
-        userPitches: [null],
-        rawMicHz: [semitoneToFreq(69)],
-        rawMicMidi: [69],
-        rawMicClarity: [0.9],
-        rawMicRms: [0.05],
-        rawMicVoiced: [true],
-        similarities: [0],
-      },
+      series: withLiveDisplay(
+        {
+          times: [2.5],
+          refPitches: [null],
+          userPitches: [null],
+          rawMicHz: [semitoneToFreq(69)],
+          rawMicMidi: [69],
+          rawMicClarity: [0.9],
+          rawMicRms: [0.05],
+          rawMicVoiced: [true],
+          similarities: [0],
+        },
+        [69],
+      ),
       currentTime: 2.5,
     });
 
@@ -452,17 +500,27 @@ describe("practice pitch adapter", () => {
           words: [{ word: "A", start: 1, end: 2, pitch: 69 }],
         },
       ],
-      series: {
-        times: [1, 1.03, 1.06],
-        refPitches: [semitoneToFreq(69), semitoneToFreq(69), semitoneToFreq(69)],
-        userPitches: [semitoneToFreq(69), null, semitoneToFreq(69)],
-        rawMicHz: [semitoneToFreq(69), null, semitoneToFreq(69)],
-        rawMicMidi: [69, null, 69],
-        rawMicClarity: [0.9, null, 0.9],
-        rawMicRms: [0.05, 0.001, 0.05],
-        rawMicVoiced: [true, false, true],
-        similarities: [1, 0, 1],
-      },
+      series: withLiveDisplay(
+        {
+          times: [1, 1.03, 1.06],
+          refPitches: [semitoneToFreq(69), semitoneToFreq(69), semitoneToFreq(69)],
+          userPitches: [semitoneToFreq(69), null, semitoneToFreq(69)],
+          rawMicHz: [semitoneToFreq(69), null, semitoneToFreq(69)],
+          rawMicMidi: [69, null, 69],
+          rawMicClarity: [0.9, null, 0.9],
+          rawMicRms: [0.05, 0.001, 0.05],
+          rawMicVoiced: [true, false, true],
+          similarities: [1, 0, 1],
+        },
+        [69, 69, 69],
+        {
+          kind: ["voiced", "silence", "voiced"],
+          cents: [0, null, 0],
+          expectedChart: [69, 69, 69],
+          expectedRaw: [69, null, 69],
+          locked: [true, true, true],
+        },
+      ),
       currentTime: 1.06,
     });
 
@@ -482,17 +540,27 @@ describe("practice pitch adapter", () => {
           words: [{ word: "A", start: 1, end: 2, pitch: 69 }],
         },
       ],
-      series: {
-        times: [1, 1.03, 1.06],
-        refPitches: [semitoneToFreq(69), semitoneToFreq(69), semitoneToFreq(69)],
-        userPitches: [semitoneToFreq(69), semitoneToFreq(70), semitoneToFreq(71)],
-        rawMicHz: [semitoneToFreq(57), semitoneToFreq(58), semitoneToFreq(59)],
-        rawMicMidi: [57, 58, 59],
-        rawMicClarity: [0.9, 0.9, 0.9],
-        rawMicRms: [0.05, 0.05, 0.05],
-        rawMicVoiced: [true, true, true],
-        similarities: [1, 0.8, 0.6],
-      },
+      series: withLiveDisplay(
+        {
+          times: [1, 1.03, 1.06],
+          refPitches: [semitoneToFreq(69), semitoneToFreq(69), semitoneToFreq(69)],
+          userPitches: [semitoneToFreq(69), semitoneToFreq(70), semitoneToFreq(71)],
+          rawMicHz: [semitoneToFreq(57), semitoneToFreq(58), semitoneToFreq(59)],
+          rawMicMidi: [57, 58, 59],
+          rawMicClarity: [0.9, 0.9, 0.9],
+          rawMicRms: [0.05, 0.05, 0.05],
+          rawMicVoiced: [true, true, true],
+          similarities: [1, 0.8, 0.6],
+        },
+        [69, 70, 71],
+        {
+          cents: [0, 100, 200],
+          register: [-1, -1, -1],
+          expectedChart: [69, 69, 69],
+          expectedRaw: [69, 69, 69],
+          locked: [true, true, true],
+        },
+      ),
       currentTime: 1.06,
     });
 
@@ -517,17 +585,29 @@ describe("practice pitch adapter", () => {
           ],
         },
       ],
-      series: {
-        times: [1.25, 2.25],
-        refPitches: [null, null],
-        userPitches: [null, null],
-        rawMicHz: [semitoneToFreq(60), semitoneToFreq(62)],
-        rawMicMidi: [60, 62],
-        rawMicClarity: [0.9, 0.9],
-        rawMicRms: [0.05, 0.05],
-        rawMicVoiced: [true, true],
-        similarities: [0, 0],
-      },
+      series: withLiveDisplay(
+        {
+          times: [1.25, 2.25],
+          refPitches: [null, null],
+          userPitches: [null, null],
+          rawMicHz: [semitoneToFreq(60), semitoneToFreq(62)],
+          rawMicMidi: [60, 62],
+          rawMicClarity: [0.9, 0.9],
+          rawMicRms: [0.05, 0.05],
+          rawMicVoiced: [true, true],
+          similarities: [0, 0],
+        },
+        [0, 2],
+        {
+          cents: [0, 0],
+          register: [0, 0],
+          expectedChart: [0, 2],
+          expectedRaw: [60, 62],
+          offset: [60, 60],
+          sampleCount: [8, 8],
+          locked: [true, true],
+        },
+      ),
       currentTime: 1.25,
       semitoneRange: 12,
     });
@@ -536,8 +616,9 @@ describe("practice pitch adapter", () => {
     expect(model.liveVoiceTrace.map((point) => Math.round(point.pitch))).toEqual([0, 2]);
     expect(model.liveVoiceTrace.map((point) => Math.round(point.displayMidi))).toEqual([0, 2]);
     expect(model.liveVoiceTrace.map((point) => point.centsFromExpected)).toEqual([0, 0]);
-    expect(model.liveVoiceTrace[0].expectedMidi).toBeNull();
-    expect(model.liveVoiceTrace[0].absoluteOctaveOffsetFromExpected).toBeNull();
+    expect(model.liveVoiceTrace[0].expectedMidi).toBe(60);
+    expect(model.liveVoiceTrace[0].expectedChartPitch).toBe(0);
+    expect(model.liveVoiceTrace[0].absoluteOctaveOffsetFromExpected).toBe(0);
   });
 
   it("does not use absolute MIDI directly as the Y-position for relative chart notes", () => {
@@ -550,17 +631,29 @@ describe("practice pitch adapter", () => {
           words: [{ word: "C", start: 1, end: 2, pitch: 0 }],
         },
       ],
-      series: {
-        times: [1.25],
-        refPitches: [null],
-        userPitches: [null],
-        rawMicHz: [semitoneToFreq(61)],
-        rawMicMidi: [61],
-        rawMicClarity: [0.9],
-        rawMicRms: [0.05],
-        rawMicVoiced: [true],
-        similarities: [0],
-      },
+      series: withLiveDisplay(
+        {
+          times: [1.25],
+          refPitches: [null],
+          userPitches: [null],
+          rawMicHz: [semitoneToFreq(61)],
+          rawMicMidi: [61],
+          rawMicClarity: [0.9],
+          rawMicRms: [0.05],
+          rawMicVoiced: [true],
+          similarities: [0],
+        },
+        [1],
+        {
+          cents: [100],
+          register: [0],
+          expectedChart: [0],
+          expectedRaw: [60],
+          offset: [60],
+          sampleCount: [8],
+          locked: [true],
+        },
+      ),
       currentTime: 1.25,
       semitoneRange: 12,
     });
@@ -575,14 +668,23 @@ describe("practice pitch adapter", () => {
       { start: 1, end: 2, pitch: 69, label: "A", source: "chart" as const },
       { start: 8, end: 9, pitch: 72, label: "C", source: "chart" as const },
     ];
-    const rawSeries: PitchSeries = {
-      times: [1.25, 4, 8.25],
-      refPitches: [null, null, null],
-      userPitches: [null, null, null],
-      rawMicHz: [semitoneToFreq(69), semitoneToFreq(70), semitoneToFreq(72)],
-      rawMicVoiced: [true, true, true],
-      similarities: [0, 0, 0],
-    };
+    const rawSeries: PitchSeries = withLiveDisplay(
+      {
+        times: [1.25, 4, 8.25],
+        refPitches: [null, null, null],
+        userPitches: [null, null, null],
+        rawMicHz: [semitoneToFreq(69), semitoneToFreq(70), semitoneToFreq(72)],
+        rawMicVoiced: [true, true, true],
+        similarities: [0, 0, 0],
+      },
+      [69, 69, 72],
+      {
+        cents: [0, null, 0],
+        expectedChart: [69, null, 72],
+        expectedRaw: [69, null, 72],
+        locked: [true, false, true],
+      },
+    );
 
     const first = buildRawLiveVoiceTrace(rawSeries, chartNotes);
     const second = buildRawLiveVoiceTrace(rawSeries, chartNotes);
@@ -590,6 +692,63 @@ describe("practice pitch adapter", () => {
     expect(first).toEqual(second);
     expect(first.map((point) => point.time)).toEqual([1.25, 4, 8.25]);
     expect(first.map((point) => Math.round(point.displayMidi))).toEqual([69, 69, 72]);
+  });
+
+  it("does not rewrite historical live points when later offset metadata changes", () => {
+    const chartNotes = [{ start: 1, end: 3, pitch: 5, label: "A", source: "chart" as const }];
+    const storedSeries = withLiveDisplay(
+      {
+        times: [1.1, 1.2],
+        refPitches: [semitoneToFreq(65), semitoneToFreq(66)],
+        userPitches: [null, null],
+        rawMicHz: [semitoneToFreq(65), semitoneToFreq(66)],
+        rawMicMidi: [65, 66],
+        rawMicVoiced: [true, true],
+        similarities: [0, 0],
+      },
+      [5, 8],
+      {
+        cents: [0, null],
+        expectedChart: [5, 5],
+        expectedRaw: [65, 65],
+        offset: [60, 58],
+        sampleCount: [8, 9],
+        locked: [true, true],
+      },
+    );
+
+    const trace = buildRawLiveVoiceTrace(storedSeries, chartNotes);
+
+    expect(trace.map((point) => point.displayMidi)).toEqual([5, 8]);
+    expect(trace.map((point) => point.centsFromExpected)).toEqual([0, null]);
+    expect(trace.map((point) => point.micToChartOffset)).toEqual([60, 58]);
+  });
+
+  it("uses stored live display fields instead of current chart calibration", () => {
+    const chartNotes = [{ start: 1, end: 2, pitch: 5, label: "A", source: "chart" as const }];
+    const storedSeries = withLiveDisplay(
+      {
+        times: [1.25],
+        refPitches: [semitoneToFreq(80)],
+        userPitches: [null],
+        rawMicHz: [semitoneToFreq(65)],
+        rawMicMidi: [65],
+        rawMicVoiced: [true],
+        similarities: [0],
+      },
+      [5],
+      {
+        cents: [0],
+        expectedChart: [5],
+        expectedRaw: [65],
+        offset: [60],
+        sampleCount: [8],
+        locked: [true],
+      },
+    );
+
+    expect(computeChartPitchCalibration(storedSeries, chartNotes).midiOffset).toBeCloseTo(75);
+    expect(buildRawLiveVoiceTrace(storedSeries, chartNotes)[0].displayMidi).toBe(5);
   });
 
   it("carries trace breaks across skipped null pitch samples", () => {
@@ -653,6 +812,16 @@ describe("practice pitch adapter", () => {
         ...series,
         rawMicHz: [110, 120, 130, 140, 150],
         rawMicVoiced: [true, true, false, true, true],
+        liveDisplayPitch: [1, 2, 3, 4, 5],
+        liveCentsFromExpected: [10, 20, null, 40, 50],
+        liveRegisterOffset: [0, 0, null, 1, 1],
+        liveKind: ["voiced", "voiced", "silence", "voiced", "voiced"],
+        expectedChartPitchAtFrame: [1, 2, 3, 4, 5],
+        liveExpectedRawMidi: [61, 62, null, 64, 65],
+        micToChartOffsetAtFrame: [60, 60, 60, 60, 60],
+        micToChartOffsetSampleCount: [1, 2, 3, 4, 5],
+        micToChartOffsetLocked: [false, false, false, true, true],
+        livePointScored: [false, false, false, true, true],
       },
       2,
     );
@@ -661,5 +830,15 @@ describe("practice pitch adapter", () => {
     expect(filtered.userPitches).toEqual([null, 220, 246.94]);
     expect(filtered.rawMicHz).toEqual([130, 140, 150]);
     expect(filtered.rawMicVoiced).toEqual([false, true, true]);
+    expect(filtered.liveDisplayPitch).toEqual([3, 4, 5]);
+    expect(filtered.liveCentsFromExpected).toEqual([null, 40, 50]);
+    expect(filtered.liveRegisterOffset).toEqual([null, 1, 1]);
+    expect(filtered.liveKind).toEqual(["silence", "voiced", "voiced"]);
+    expect(filtered.expectedChartPitchAtFrame).toEqual([3, 4, 5]);
+    expect(filtered.liveExpectedRawMidi).toEqual([null, 64, 65]);
+    expect(filtered.micToChartOffsetAtFrame).toEqual([60, 60, 60]);
+    expect(filtered.micToChartOffsetSampleCount).toEqual([3, 4, 5]);
+    expect(filtered.micToChartOffsetLocked).toEqual([false, true, true]);
+    expect(filtered.livePointScored).toEqual([false, true, true]);
   });
 });
