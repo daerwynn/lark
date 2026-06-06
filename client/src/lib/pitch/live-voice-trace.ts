@@ -67,6 +67,7 @@ export interface BuildRawLiveVoicePointArgs {
   rawHz: number | null | undefined;
   displayMidi?: number | null | undefined;
   expectedMidi?: number | null | undefined;
+  centsFromExpected?: number | null | undefined;
   baselineOctaveOffset?: number | null;
   clarity?: number | null;
   rms?: number | null;
@@ -89,6 +90,12 @@ export interface LiveVoiceTraceStyle {
   marker: string;
 }
 
+export interface LiveVoiceTraceStrokeOptions {
+  color?: string;
+  useScoredStyle?: boolean;
+}
+
+export const RAW_LIVE_VOICE_NEUTRAL_STROKE = "rgba(235, 255, 245, 0.98)";
 export const LIVE_VOICE_BASELINE_SAMPLE_COUNT = 45;
 export const LIVE_VOICE_BASELINE_MAX_CENTS = 150;
 export const LIVE_VOICE_MAX_CONNECTION_GAP_SEC = 0.15;
@@ -138,6 +145,7 @@ export function buildRawLiveVoiceTracePoint({
   rawHz,
   displayMidi,
   expectedMidi,
+  centsFromExpected,
   baselineOctaveOffset = null,
   clarity = null,
   rms = null,
@@ -167,7 +175,11 @@ export function buildRawLiveVoiceTracePoint({
     stableHz: semitoneToFreq(pitch),
     stableMidi: pitch,
     expectedMidi: normalized == null ? null : expectedMidiValue,
-    centsFromExpected: normalized?.centsFromExpected ?? null,
+    centsFromExpected:
+      normalized?.centsFromExpected ??
+      (typeof centsFromExpected === "number" && Number.isFinite(centsFromExpected)
+        ? centsFromExpected
+        : null),
     absoluteOctaveOffsetFromExpected: normalized?.absoluteOctaveOffsetFromExpected ?? null,
     baselineOctaveOffset: normalized?.baselineOctaveOffset ?? null,
     baselineRelativeOctaveOffset: normalized?.baselineRelativeOctaveOffset ?? null,
@@ -531,6 +543,16 @@ export function styleLiveVoiceTracePoint(
     stroke: rgba(rgb, register === "extreme" ? 1 : 0.96),
     marker: rgba(rgb, 1),
   };
+}
+
+export function liveVoiceTraceStroke(
+  point: LiveVoiceTracePoint,
+  settings: PracticePitchFeedbackSettings,
+  options: LiveVoiceTraceStrokeOptions = {},
+): string {
+  if (options.color) return options.color;
+  if (options.useScoredStyle === false) return RAW_LIVE_VOICE_NEUTRAL_STROKE;
+  return styleLiveVoiceTracePoint(point, settings).stroke;
 }
 
 export function shouldConnectLiveVoiceTracePoints(

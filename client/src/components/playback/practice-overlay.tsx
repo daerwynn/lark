@@ -4,6 +4,7 @@ import type { PitchScoringDebug } from "@/hooks/use-pitch-scoring";
 import { shortcutHint, type PlaybackShortcutBindings } from "@/lib/playback/keybindings";
 import { formatPlaybackTime } from "@/lib/playback/transport-controls";
 import {
+  liveVoiceTraceStroke,
   RAW_LIVE_VOICE_MAX_CONNECTION_GAP_SEC,
   shouldConnectLiveVoiceTracePoints,
   styleLiveVoiceTracePoint,
@@ -335,6 +336,7 @@ function drawLiveVoiceTrace(
     lineWidth?: number;
     color?: string;
     maxGapSec?: number;
+    useScoredStyle?: boolean;
   } = {},
 ): void {
   ctx.save();
@@ -355,8 +357,10 @@ function drawLiveVoiceTrace(
       point.kind === "silence" || prev.kind === "silence"
         ? Math.max(3, (options.lineWidth ?? 10) * 0.55)
         : (options.lineWidth ?? 10);
-    ctx.strokeStyle =
-      options.color ?? styleLiveVoiceTracePoint(point, settings.pitchFeedback).stroke;
+    ctx.strokeStyle = liveVoiceTraceStroke(point, settings.pitchFeedback, {
+      color: options.color,
+      useScoredStyle: options.useScoredStyle,
+    });
     ctx.beginPath();
     ctx.moveTo(x1, pitchToY(prev.pitch, model, size.height));
     ctx.lineTo(x2, pitchToY(point.pitch, model, size.height));
@@ -423,6 +427,7 @@ function drawLane(
   drawLiveVoiceTrace(ctx, size, model, currentTime, model.rawLiveVoiceTrace, settings, {
     lineWidth: 10,
     maxGapSec: RAW_LIVE_VOICE_MAX_CONNECTION_GAP_SEC,
+    useScoredStyle: true,
   });
 
   if (showDebugTrace) {

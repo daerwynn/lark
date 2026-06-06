@@ -403,7 +403,8 @@ describe("practice pitch adapter", () => {
 
     expect(model.userTrace[0].pitch).toBeCloseTo(72);
     expect(model.liveVoiceTrace).toBe(model.rawLiveVoiceTrace);
-    expect(model.liveVoiceTrace[0].displayMidi).toBeCloseTo(57);
+    expect(model.liveVoiceTrace[0].displayMidi).toBeCloseTo(69);
+    expect(model.liveVoiceTrace[0].pitch).toBeCloseTo(69);
     expect(model.liveVoiceTrace[0].rawMidi).toBeCloseTo(57);
     expect(model.liveVoiceTrace[0].expectedMidi).toBe(69);
     expect(model.liveVoiceTrace[0].absoluteOctaveOffsetFromExpected).toBe(-1);
@@ -498,9 +499,75 @@ describe("practice pitch adapter", () => {
     expect(model.rawUserTrace).toHaveLength(3);
     expect(model.liveVoiceTrace).toHaveLength(3);
     expect(model.liveVoiceTrace.map((point) => Math.round(point.displayMidi))).toEqual([
-      57, 58, 59,
+      69, 70, 71,
     ]);
     expect(model.liveVoiceTrace.map((point) => point.centsFromExpected)).toEqual([0, 100, 200]);
+  });
+
+  it("maps absolute mic MIDI into UltraStar relative chart-lane pitch", () => {
+    const model = buildPracticeLaneModel({
+      segments: [
+        {
+          text: "relative",
+          start: 1,
+          end: 3,
+          words: [
+            { word: "C", start: 1, end: 2, pitch: 0 },
+            { word: "D", start: 2, end: 3, pitch: 2 },
+          ],
+        },
+      ],
+      series: {
+        times: [1.25, 2.25],
+        refPitches: [null, null],
+        userPitches: [null, null],
+        rawMicHz: [semitoneToFreq(60), semitoneToFreq(62)],
+        rawMicMidi: [60, 62],
+        rawMicClarity: [0.9, 0.9],
+        rawMicRms: [0.05, 0.05],
+        rawMicVoiced: [true, true],
+        similarities: [0, 0],
+      },
+      currentTime: 1.25,
+      semitoneRange: 12,
+    });
+
+    expect(model.liveVoiceTrace.map((point) => Math.round(point.rawMidi ?? 0))).toEqual([60, 62]);
+    expect(model.liveVoiceTrace.map((point) => Math.round(point.pitch))).toEqual([0, 2]);
+    expect(model.liveVoiceTrace.map((point) => Math.round(point.displayMidi))).toEqual([0, 2]);
+    expect(model.liveVoiceTrace.map((point) => point.centsFromExpected)).toEqual([0, 0]);
+    expect(model.liveVoiceTrace[0].expectedMidi).toBeNull();
+    expect(model.liveVoiceTrace[0].absoluteOctaveOffsetFromExpected).toBeNull();
+  });
+
+  it("does not use absolute MIDI directly as the Y-position for relative chart notes", () => {
+    const model = buildPracticeLaneModel({
+      segments: [
+        {
+          text: "relative",
+          start: 1,
+          end: 2,
+          words: [{ word: "C", start: 1, end: 2, pitch: 0 }],
+        },
+      ],
+      series: {
+        times: [1.25],
+        refPitches: [null],
+        userPitches: [null],
+        rawMicHz: [semitoneToFreq(61)],
+        rawMicMidi: [61],
+        rawMicClarity: [0.9],
+        rawMicRms: [0.05],
+        rawMicVoiced: [true],
+        similarities: [0],
+      },
+      currentTime: 1.25,
+      semitoneRange: 12,
+    });
+
+    expect(model.liveVoiceTrace[0].rawMidi).toBeCloseTo(61);
+    expect(model.liveVoiceTrace[0].pitch).toBeCloseTo(1);
+    expect(model.liveVoiceTrace[0].centsFromExpected).toBe(100);
   });
 
   it("builds raw live trace independently of viewport time", () => {
@@ -522,7 +589,7 @@ describe("practice pitch adapter", () => {
 
     expect(first).toEqual(second);
     expect(first.map((point) => point.time)).toEqual([1.25, 4, 8.25]);
-    expect(first.map((point) => Math.round(point.displayMidi))).toEqual([69, 70, 72]);
+    expect(first.map((point) => Math.round(point.displayMidi))).toEqual([69, 69, 72]);
   });
 
   it("carries trace breaks across skipped null pitch samples", () => {

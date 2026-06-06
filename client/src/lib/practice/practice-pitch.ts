@@ -391,6 +391,35 @@ export function buildRawUserTrace(
   );
 }
 
+function chartPitchCenter(chartNotes: PracticeExpectedNote[]): number | null {
+  const values = chartNotes.map((note) => note.pitch).filter(isFiniteNumber);
+  if (values.length === 0) return null;
+  return (Math.min(...values) + Math.max(...values)) / 2;
+}
+
+function rawLiveLaneMapping(
+  rawMidi: number,
+  note: PracticeExpectedNote | null,
+  expectedMidi: number | null,
+): { pitch: number; centsFromExpected: number } | null {
+  if (!note || !isFiniteNumber(rawMidi)) return null;
+
+  if (expectedMidi != null) {
+    const octaveNormalizedRaw = snapToRefOctave(expectedMidi, rawMidi);
+    const difference = octaveNormalizedRaw - expectedMidi;
+    return {
+      pitch: note.pitch + difference,
+      centsFromExpected: Math.round(difference * 100),
+    };
+  }
+
+  const pitch = snapToRefOctave(note.pitch, rawMidi);
+  return {
+    pitch,
+    centsFromExpected: Math.round((pitch - note.pitch) * 100),
+  };
+}
+
 export function buildRawLiveVoiceTrace(
   series: PitchSeries,
   chartNotes: PracticeExpectedNote[],
@@ -403,6 +432,7 @@ export function buildRawLiveVoiceTrace(
 
   let baselineOctaveOffset: number | null = null;
   let lastDisplayPitch: number | null = null;
+  const chartCenter = chartPitchCenter(chartNotes);
 
   for (let index = 0; index < series.times.length; index++) {
     const time = series.times[index];
@@ -416,10 +446,17 @@ export function buildRawLiveVoiceTrace(
     const rms = series.rawMicRms?.[index] ?? null;
 
     if (voiced && isFiniteNumber(rawHz) && rawHz > 0) {
+      const rawMidi = freqToSemitone(rawHz);
+      const laneMapping = rawLiveLaneMapping(rawMidi, note, expectedMidi);
+      const displayMidi =
+        laneMapping?.pitch ??
+        (chartNotes.length > 0 ? (lastDisplayPitch ?? chartCenter ?? rawMidi) : rawMidi);
       const point = buildRawLiveVoiceTracePoint({
         time,
         rawHz,
+        displayMidi,
         expectedMidi,
+        centsFromExpected: laneMapping?.centsFromExpected ?? null,
         baselineOctaveOffset,
         clarity,
         rms,
@@ -440,7 +477,7 @@ export function buildRawLiveVoiceTrace(
       continue;
     }
 
-    const silencePitch = lastDisplayPitch ?? note?.pitch ?? 60;
+    const silencePitch = lastDisplayPitch ?? note?.pitch ?? chartCenter ?? 60;
     const silencePoint = buildLiveVoiceSilencePoint({
       time,
       displayMidi: silencePitch,

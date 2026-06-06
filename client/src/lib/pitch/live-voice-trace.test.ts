@@ -8,8 +8,10 @@ import {
   buildLiveVoiceTracePoint,
   computeRollingBaselineOctaveOffset,
   liveVoiceAccuracyFromCents,
+  liveVoiceTraceStroke,
   LiveVoiceDisplayStabilizer,
   normalizeMicPitchForExpected,
+  RAW_LIVE_VOICE_NEUTRAL_STROKE,
   shouldConnectLiveVoiceTracePoints,
   styleLiveVoiceTracePoint,
 } from "./live-voice-trace";
@@ -158,6 +160,23 @@ describe("live voice trace helpers", () => {
     expect(point.voiced).toBe(false);
     expect(style.accuracy).toBe("none");
     expect(style.stroke).toContain("rgba(78, 82, 88");
+  });
+
+  it("uses scored trace styling unless a fixed debug color is requested", () => {
+    const point = buildRawLiveVoiceTracePoint({
+      time: 1,
+      rawHz: semitoneToFreq(A4),
+      expectedMidi: A4,
+    });
+
+    if (!point) throw new Error("expected point");
+    expect(liveVoiceTraceStroke(point, settings, { useScoredStyle: true })).toBe(
+      styleLiveVoiceTracePoint(point, settings).stroke,
+    );
+    expect(liveVoiceTraceStroke(point, settings, { useScoredStyle: false })).toBe(
+      RAW_LIVE_VOICE_NEUTRAL_STROKE,
+    );
+    expect(liveVoiceTraceStroke(point, settings, { color: "white" })).toBe("white");
   });
 
   it("allows scoring pitch to differ without changing trace position", () => {
