@@ -816,7 +816,8 @@ function PracticeOverlayImpl({
             {latestVoicedPoint?.centsFromExpected == null
               ? "--"
               : latestVoicedPoint.centsFromExpected}{" "}
-            octave {latestVoicedPoint?.absoluteOctaveOffsetFromExpected ?? "--"}
+            octave {latestVoicedPoint?.absoluteOctaveOffsetFromExpected ?? "--"} source{" "}
+            {latestVoicedPoint?.offsetSource ?? "--"} drop {latestVoicedPoint?.dropReason ?? "--"}
           </div>
           <div>
             live offset{" "}
@@ -826,6 +827,23 @@ function PracticeOverlayImpl({
             samples {latestVoicedPoint?.micToChartOffsetSampleCount ?? "--"} locked=
             {String(latestVoicedPoint?.micToChartOffsetLocked ?? false)} scored=
             {String(latestVoicedPoint?.scored ?? false)}
+          </div>
+          <div>
+            guide offset{" "}
+            {latestVoicedPoint?.guideVocalOffset == null
+              ? "--"
+              : latestVoicedPoint.guideVocalOffset.toFixed(2)}{" "}
+            samples {latestVoicedPoint?.guideVocalOffsetSampleCount ?? "--"} confidence{" "}
+            {latestVoicedPoint == null ? "--" : latestVoicedPoint.guideVocalConfidence.toFixed(2)}{" "}
+            quality {latestVoicedPoint?.guideVocalQuality ?? "--"}
+          </div>
+          <div>
+            user fallback offset{" "}
+            {latestVoicedPoint?.userMicOffset == null
+              ? "--"
+              : latestVoicedPoint.userMicOffset.toFixed(2)}{" "}
+            samples {latestVoicedPoint?.userMicOffsetSampleCount ?? "--"} locked=
+            {String(latestVoicedPoint?.userMicOffsetLocked ?? false)}
           </div>
           <div>
             note{" "}
@@ -877,13 +895,25 @@ function PracticeOverlayImpl({
             {micDebug.liveDisplayPitch == null ? "--" : micDebug.liveDisplayPitch.toFixed(2)} chart{" "}
             {micDebug.expectedChartPitch == null ? "--" : micDebug.expectedChartPitch.toFixed(2)}{" "}
             cents {micDebug.liveCentsFromExpected ?? "--"} register{" "}
-            {micDebug.liveRegisterOffset ?? "--"} kind {micDebug.liveKind ?? "--"}
+            {micDebug.liveRegisterOffset ?? "--"} kind {micDebug.liveKind ?? "--"} source{" "}
+            {micDebug.activeOffsetSource ?? "--"} live-drop {micDebug.liveDropReason ?? "--"}
           </div>
           <div>
             live stored offset{" "}
             {micDebug.micToChartOffset == null ? "--" : micDebug.micToChartOffset.toFixed(2)}{" "}
             samples {micDebug.micToChartOffsetSampleCount} locked=
             {String(micDebug.micToChartOffsetLocked)}
+          </div>
+          <div>
+            guide stored offset{" "}
+            {micDebug.guideVocalOffset == null ? "--" : micDebug.guideVocalOffset.toFixed(2)}{" "}
+            samples {micDebug.guideVocalSampleCount} confidence{" "}
+            {micDebug.guideVocalConfidence.toFixed(2)} quality {micDebug.guideVocalQuality ?? "--"}
+          </div>
+          <div>
+            user stored offset{" "}
+            {micDebug.userMicOffset == null ? "--" : micDebug.userMicOffset.toFixed(2)} samples{" "}
+            {micDebug.userMicSampleCount} locked={String(micDebug.userMicLocked)}
           </div>
           <div>
             frame id {micDebug.frameId ?? "--"} age{" "}

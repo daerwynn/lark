@@ -56,9 +56,18 @@ function withLiveDisplay(
     kind?: ("voiced" | "silence" | null)[];
     expectedChart?: (number | null)[];
     expectedRaw?: (number | null)[];
+    dropReason?: NonNullable<PitchSeries["liveDropReason"]>;
+    offsetSource?: NonNullable<PitchSeries["liveOffsetSource"]>;
     offset?: (number | null)[];
     sampleCount?: number[];
     locked?: boolean[];
+    guideOffset?: (number | null)[];
+    guideSampleCount?: number[];
+    guideConfidence?: number[];
+    guideQuality?: NonNullable<PitchSeries["guideVocalQualityAtFrame"]>;
+    userOffset?: (number | null)[];
+    userSampleCount?: number[];
+    userLocked?: boolean[];
     scored?: boolean[];
   } = {},
 ): PitchSeries {
@@ -71,11 +80,20 @@ function withLiveDisplay(
     liveCentsFromExpected: options.cents ?? fill(null),
     liveRegisterOffset: options.register ?? fill(null),
     liveKind: options.kind ?? displayPitch.map((pitch) => (pitch == null ? "silence" : "voiced")),
+    liveDropReason: options.dropReason ?? fill(null),
+    liveOffsetSource: options.offsetSource ?? fill(null),
     expectedChartPitchAtFrame: options.expectedChart ?? fill(null),
     liveExpectedRawMidi: options.expectedRaw ?? fill(null),
     micToChartOffsetAtFrame: options.offset ?? fill(null),
     micToChartOffsetSampleCount: options.sampleCount ?? fill(0),
     micToChartOffsetLocked: options.locked ?? fill(false),
+    guideVocalOffsetAtFrame: options.guideOffset ?? fill(null),
+    guideVocalOffsetSampleCount: options.guideSampleCount ?? fill(0),
+    guideVocalConfidenceAtFrame: options.guideConfidence ?? fill(0),
+    guideVocalQualityAtFrame: options.guideQuality ?? fill(null),
+    userMicOffsetAtFrame: options.userOffset ?? fill(null),
+    userMicOffsetSampleCount: options.userSampleCount ?? fill(0),
+    userMicOffsetLocked: options.userLocked ?? fill(false),
     livePointScored: options.scored ?? fill(false),
   };
 }
@@ -816,11 +834,20 @@ describe("practice pitch adapter", () => {
         liveCentsFromExpected: [10, 20, null, 40, 50],
         liveRegisterOffset: [0, 0, null, 1, 1],
         liveKind: ["voiced", "voiced", "silence", "voiced", "voiced"],
+        liveDropReason: [null, null, "unvoiced", null, null],
+        liveOffsetSource: ["guide-vocal", "guide-vocal", "guide-vocal", "user-mic", "user-mic"],
         expectedChartPitchAtFrame: [1, 2, 3, 4, 5],
         liveExpectedRawMidi: [61, 62, null, 64, 65],
         micToChartOffsetAtFrame: [60, 60, 60, 60, 60],
         micToChartOffsetSampleCount: [1, 2, 3, 4, 5],
         micToChartOffsetLocked: [false, false, false, true, true],
+        guideVocalOffsetAtFrame: [60, 60, 60, null, null],
+        guideVocalOffsetSampleCount: [21, 22, 23, 0, 0],
+        guideVocalConfidenceAtFrame: [0.7, 0.75, 0.8, 0, 0],
+        guideVocalQualityAtFrame: ["low", "low", "ok", null, null],
+        userMicOffsetAtFrame: [null, null, null, 60, 60],
+        userMicOffsetSampleCount: [0, 0, 0, 34, 35],
+        userMicOffsetLocked: [false, false, false, true, true],
         livePointScored: [false, false, false, true, true],
       },
       2,
@@ -834,11 +861,20 @@ describe("practice pitch adapter", () => {
     expect(filtered.liveCentsFromExpected).toEqual([null, 40, 50]);
     expect(filtered.liveRegisterOffset).toEqual([null, 1, 1]);
     expect(filtered.liveKind).toEqual(["silence", "voiced", "voiced"]);
+    expect(filtered.liveDropReason).toEqual(["unvoiced", null, null]);
+    expect(filtered.liveOffsetSource).toEqual(["guide-vocal", "user-mic", "user-mic"]);
     expect(filtered.expectedChartPitchAtFrame).toEqual([3, 4, 5]);
     expect(filtered.liveExpectedRawMidi).toEqual([null, 64, 65]);
     expect(filtered.micToChartOffsetAtFrame).toEqual([60, 60, 60]);
     expect(filtered.micToChartOffsetSampleCount).toEqual([3, 4, 5]);
     expect(filtered.micToChartOffsetLocked).toEqual([false, true, true]);
+    expect(filtered.guideVocalOffsetAtFrame).toEqual([60, null, null]);
+    expect(filtered.guideVocalOffsetSampleCount).toEqual([23, 0, 0]);
+    expect(filtered.guideVocalConfidenceAtFrame).toEqual([0.8, 0, 0]);
+    expect(filtered.guideVocalQualityAtFrame).toEqual(["ok", null, null]);
+    expect(filtered.userMicOffsetAtFrame).toEqual([null, 60, 60]);
+    expect(filtered.userMicOffsetSampleCount).toEqual([0, 34, 35]);
+    expect(filtered.userMicOffsetLocked).toEqual([false, true, true]);
     expect(filtered.livePointScored).toEqual([false, true, true]);
   });
 });

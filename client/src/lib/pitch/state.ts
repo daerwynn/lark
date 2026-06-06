@@ -26,11 +26,20 @@ export interface PitchSeries {
   liveCentsFromExpected?: (number | null)[];
   liveRegisterOffset?: (number | null)[];
   liveKind?: (PitchLiveDisplayKind | null)[];
+  liveDropReason?: (PitchLiveDisplayDropReason | null)[];
+  liveOffsetSource?: (PitchLiveDisplayOffsetSource | null)[];
   expectedChartPitchAtFrame?: (number | null)[];
   liveExpectedRawMidi?: (number | null)[];
   micToChartOffsetAtFrame?: (number | null)[];
   micToChartOffsetSampleCount?: number[];
   micToChartOffsetLocked?: boolean[];
+  guideVocalOffsetAtFrame?: (number | null)[];
+  guideVocalOffsetSampleCount?: number[];
+  guideVocalConfidenceAtFrame?: number[];
+  guideVocalQualityAtFrame?: (PitchLiveDisplayCalibrationQuality | null)[];
+  userMicOffsetAtFrame?: (number | null)[];
+  userMicOffsetSampleCount?: number[];
+  userMicOffsetLocked?: boolean[];
   livePointScored?: boolean[];
   similarities: number[];
   times: number[];
@@ -41,6 +50,15 @@ export interface PitchHistoryTimeEvent {
 }
 
 export type PitchLiveDisplayKind = "voiced" | "silence";
+export type PitchLiveDisplayDropReason =
+  | "unvoiced"
+  | "outlier"
+  | "display-outlier"
+  | "no-display-pitch"
+  | "no-expected-pitch"
+  | null;
+export type PitchLiveDisplayOffsetSource = "guide-vocal" | "user-mic" | "none";
+export type PitchLiveDisplayCalibrationQuality = "none" | "low" | "ok" | "good";
 
 export interface PitchLiveDisplayFrame {
   displayPitch?: number | null;
@@ -49,9 +67,18 @@ export interface PitchLiveDisplayFrame {
   kind?: PitchLiveDisplayKind | null;
   expectedChartPitch?: number | null;
   expectedRawMidi?: number | null;
+  dropReason?: PitchLiveDisplayDropReason;
+  offsetSource?: PitchLiveDisplayOffsetSource;
   micToChartOffset?: number | null;
   micToChartOffsetSampleCount?: number;
   micToChartOffsetLocked?: boolean;
+  guideVocalOffset?: number | null;
+  guideVocalOffsetSampleCount?: number;
+  guideVocalConfidence?: number;
+  guideVocalQuality?: PitchLiveDisplayCalibrationQuality | null;
+  userMicOffset?: number | null;
+  userMicOffsetSampleCount?: number;
+  userMicOffsetLocked?: boolean;
   scored?: boolean;
 }
 
@@ -105,11 +132,20 @@ export class PitchStateBuffer {
   liveCentsFromExpected: (number | null)[] = [];
   liveRegisterOffset: (number | null)[] = [];
   liveKind: (PitchLiveDisplayKind | null)[] = [];
+  liveDropReason: (PitchLiveDisplayDropReason | null)[] = [];
+  liveOffsetSource: (PitchLiveDisplayOffsetSource | null)[] = [];
   expectedChartPitchAtFrame: (number | null)[] = [];
   liveExpectedRawMidi: (number | null)[] = [];
   micToChartOffsetAtFrame: (number | null)[] = [];
   micToChartOffsetSampleCount: number[] = [];
   micToChartOffsetLocked: boolean[] = [];
+  guideVocalOffsetAtFrame: (number | null)[] = [];
+  guideVocalOffsetSampleCount: number[] = [];
+  guideVocalConfidenceAtFrame: number[] = [];
+  guideVocalQualityAtFrame: (PitchLiveDisplayCalibrationQuality | null)[] = [];
+  userMicOffsetAtFrame: (number | null)[] = [];
+  userMicOffsetSampleCount: number[] = [];
+  userMicOffsetLocked: boolean[] = [];
   livePointScored: boolean[] = [];
   similarities: number[] = [];
   times: number[] = [];
@@ -160,11 +196,20 @@ export class PitchStateBuffer {
       this.liveCentsFromExpected.shift();
       this.liveRegisterOffset.shift();
       this.liveKind.shift();
+      this.liveDropReason.shift();
+      this.liveOffsetSource.shift();
       this.expectedChartPitchAtFrame.shift();
       this.liveExpectedRawMidi.shift();
       this.micToChartOffsetAtFrame.shift();
       this.micToChartOffsetSampleCount.shift();
       this.micToChartOffsetLocked.shift();
+      this.guideVocalOffsetAtFrame.shift();
+      this.guideVocalOffsetSampleCount.shift();
+      this.guideVocalConfidenceAtFrame.shift();
+      this.guideVocalQualityAtFrame.shift();
+      this.userMicOffsetAtFrame.shift();
+      this.userMicOffsetSampleCount.shift();
+      this.userMicOffsetLocked.shift();
       this.livePointScored.shift();
       this.similarities.shift();
       this.times.shift();
@@ -186,11 +231,20 @@ export class PitchStateBuffer {
     this.liveCentsFromExpected.push(liveDisplay.centsFromExpected ?? null);
     this.liveRegisterOffset.push(liveDisplay.registerOffset ?? null);
     this.liveKind.push(liveDisplay.kind ?? null);
+    this.liveDropReason.push(liveDisplay.dropReason ?? null);
+    this.liveOffsetSource.push(liveDisplay.offsetSource ?? null);
     this.expectedChartPitchAtFrame.push(liveDisplay.expectedChartPitch ?? null);
     this.liveExpectedRawMidi.push(liveDisplay.expectedRawMidi ?? null);
     this.micToChartOffsetAtFrame.push(liveDisplay.micToChartOffset ?? null);
     this.micToChartOffsetSampleCount.push(liveDisplay.micToChartOffsetSampleCount ?? 0);
     this.micToChartOffsetLocked.push(liveDisplay.micToChartOffsetLocked ?? false);
+    this.guideVocalOffsetAtFrame.push(liveDisplay.guideVocalOffset ?? null);
+    this.guideVocalOffsetSampleCount.push(liveDisplay.guideVocalOffsetSampleCount ?? 0);
+    this.guideVocalConfidenceAtFrame.push(liveDisplay.guideVocalConfidence ?? 0);
+    this.guideVocalQualityAtFrame.push(liveDisplay.guideVocalQuality ?? null);
+    this.userMicOffsetAtFrame.push(liveDisplay.userMicOffset ?? null);
+    this.userMicOffsetSampleCount.push(liveDisplay.userMicOffsetSampleCount ?? 0);
+    this.userMicOffsetLocked.push(liveDisplay.userMicOffsetLocked ?? false);
     this.livePointScored.push(liveDisplay.scored ?? false);
     this.pendingTraceBreak = false;
     this.similarities.push(similarity);
@@ -221,11 +275,20 @@ export class PitchStateBuffer {
       liveCentsFromExpected: [...this.liveCentsFromExpected],
       liveRegisterOffset: [...this.liveRegisterOffset],
       liveKind: [...this.liveKind],
+      liveDropReason: [...this.liveDropReason],
+      liveOffsetSource: [...this.liveOffsetSource],
       expectedChartPitchAtFrame: [...this.expectedChartPitchAtFrame],
       liveExpectedRawMidi: [...this.liveExpectedRawMidi],
       micToChartOffsetAtFrame: [...this.micToChartOffsetAtFrame],
       micToChartOffsetSampleCount: [...this.micToChartOffsetSampleCount],
       micToChartOffsetLocked: [...this.micToChartOffsetLocked],
+      guideVocalOffsetAtFrame: [...this.guideVocalOffsetAtFrame],
+      guideVocalOffsetSampleCount: [...this.guideVocalOffsetSampleCount],
+      guideVocalConfidenceAtFrame: [...this.guideVocalConfidenceAtFrame],
+      guideVocalQualityAtFrame: [...this.guideVocalQualityAtFrame],
+      userMicOffsetAtFrame: [...this.userMicOffsetAtFrame],
+      userMicOffsetSampleCount: [...this.userMicOffsetSampleCount],
+      userMicOffsetLocked: [...this.userMicOffsetLocked],
       livePointScored: [...this.livePointScored],
       similarities: [...this.similarities],
       times: [...this.times],
@@ -250,11 +313,20 @@ export class PitchStateBuffer {
     this.liveCentsFromExpected = [];
     this.liveRegisterOffset = [];
     this.liveKind = [];
+    this.liveDropReason = [];
+    this.liveOffsetSource = [];
     this.expectedChartPitchAtFrame = [];
     this.liveExpectedRawMidi = [];
     this.micToChartOffsetAtFrame = [];
     this.micToChartOffsetSampleCount = [];
     this.micToChartOffsetLocked = [];
+    this.guideVocalOffsetAtFrame = [];
+    this.guideVocalOffsetSampleCount = [];
+    this.guideVocalConfidenceAtFrame = [];
+    this.guideVocalQualityAtFrame = [];
+    this.userMicOffsetAtFrame = [];
+    this.userMicOffsetSampleCount = [];
+    this.userMicOffsetLocked = [];
     this.livePointScored = [];
     this.similarities = [];
     this.times = [];

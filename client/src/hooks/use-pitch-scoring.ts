@@ -16,6 +16,11 @@ import { LiveDisplayMapper } from "@/lib/pitch/live-display";
 import { LivePitchStabilizer } from "@/lib/pitch/stabilizer";
 import { applyPitchOffsetToFrame } from "@/lib/practice/vocal-calibration";
 import {
+  computeGuideVocalChartOffset,
+  isUsableGuideVocalCalibration,
+} from "@/lib/pitch/guide-vocal-calibration";
+import type { PitchLiveDisplayFrame } from "@/lib/pitch/state";
+import {
   computeSingableTime,
   freqToSemitone,
   PitchScoring,
@@ -26,12 +31,15 @@ import {
   semitoneToFreq,
   shouldResetPitchHistory,
 } from "@/lib/pitch/state";
-import { expectedNoteAtTime, extractChartNotes } from "@/lib/practice/practice-pitch";
+import {
+  expectedNoteAtTime,
+  extractChartNotes,
+  type PracticePitchCalibration,
+} from "@/lib/practice/practice-pitch";
 import type { Segment } from "@/types/Transcript";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 const BACKWARD_SEEK_RESET_SEC = 0.25;
-const CHART_CALIBRATION_SAMPLES = 80;
 const CHART_EXPECTED_TOLERANCE_SEC = 0.12;
 
 export type PitchScoringDropReason =
@@ -64,9 +72,18 @@ export interface PitchScoringDebug {
   expectedChartPitch: number | null;
   liveCentsFromExpected: number | null;
   liveRegisterOffset: number | null;
+  liveDropReason: PitchLiveDisplayFrame["dropReason"];
+  activeOffsetSource: NonNullable<PitchLiveDisplayFrame["offsetSource"]> | null;
   micToChartOffset: number | null;
   micToChartOffsetSampleCount: number;
   micToChartOffsetLocked: boolean;
+  guideVocalOffset: number | null;
+  guideVocalSampleCount: number;
+  guideVocalConfidence: number;
+  guideVocalQuality: PitchLiveDisplayFrame["guideVocalQuality"];
+  userMicOffset: number | null;
+  userMicSampleCount: number;
+  userMicLocked: boolean;
   liveKind: "voiced" | "silence" | null;
 }
 
@@ -103,19 +120,20 @@ const EMPTY_DEBUG: PitchScoringDebug = {
   expectedChartPitch: null,
   liveCentsFromExpected: null,
   liveRegisterOffset: null,
+  liveDropReason: null,
+  activeOffsetSource: null,
   micToChartOffset: null,
   micToChartOffsetSampleCount: 0,
   micToChartOffsetLocked: false,
+  guideVocalOffset: null,
+  guideVocalSampleCount: 0,
+  guideVocalConfidence: 0,
+  guideVocalQuality: null,
+  userMicOffset: null,
+  userMicSampleCount: 0,
+  userMicLocked: false,
   liveKind: null,
 };
-
-function median(values: number[]): number | null {
-  if (values.length === 0) return null;
-  const sorted = [...values].sort((a, b) => a - b);
-  const middle = Math.floor(sorted.length / 2);
-  if (sorted.length % 2 === 1) return sorted[middle];
-  return (sorted[middle - 1] + sorted[middle]) / 2;
-}
 
 function hzToMidi(hz: number | null | undefined): number | null {
   return typeof hz === "number" && Number.isFinite(hz) && hz > 0 ? freqToSemitone(hz) : null;
@@ -126,6 +144,54 @@ function detectionFrameFromAnalysis(frame: TimedPitchAnalysisFrame): PitchDetect
     return null;
   }
   return { hz: frame.hz, clarity: frame.clarity, rms: frame.rms };
+}
+
+function emptyGuideCalibration(): PracticePitchCalibration {
+  return {
+    midiOffset: null,
+    sampleCount: 0,
+    source: "none",
+    confidence: 0,
+    quality: "none",
+  };
+}
+
+function guideOffsetArgs(calibration: PracticePitchCalibration): {
+  guideOffset: number | null;
+  guideSampleCount: number;
+  guideConfidence: number;
+  guideQuality: PitchLiveDisplayFrame["guideVocalQuality"];
+} {
+  const usable = isUsableGuideVocalCalibration(calibration);
+
+  return {
+    guideOffset: usable ? calibration.midiOffset : null,
+    guideSampleCount: usable ? calibration.sampleCount : 0,
+    guideConfidence: usable ? calibration.confidence : 0,
+    guideQuality: usable ? calibration.quality : calibration.quality,
+  };
+}
+
+function debugFromLiveDisplay(display: PitchLiveDisplayFrame) {
+  return {
+    liveDisplayPitch: display.displayPitch ?? null,
+    expectedChartPitch: display.expectedChartPitch ?? null,
+    liveCentsFromExpected: display.centsFromExpected ?? null,
+    liveRegisterOffset: display.registerOffset ?? null,
+    liveDropReason: display.dropReason ?? null,
+    activeOffsetSource: display.offsetSource ?? null,
+    micToChartOffset: display.micToChartOffset ?? null,
+    micToChartOffsetSampleCount: display.micToChartOffsetSampleCount ?? 0,
+    micToChartOffsetLocked: display.micToChartOffsetLocked ?? false,
+    guideVocalOffset: display.guideVocalOffset ?? null,
+    guideVocalSampleCount: display.guideVocalOffsetSampleCount ?? 0,
+    guideVocalConfidence: display.guideVocalConfidence ?? 0,
+    guideVocalQuality: display.guideVocalQuality ?? null,
+    userMicOffset: display.userMicOffset ?? null,
+    userMicSampleCount: display.userMicOffsetSampleCount ?? 0,
+    userMicLocked: display.userMicOffsetLocked ?? false,
+    liveKind: display.kind ?? null,
+  };
 }
 
 export function usePitchScoring(
@@ -149,7 +215,7 @@ export function usePitchScoring(
   const scoringRef = useRef(new PitchScoring(1));
   const micPitchFrameRef = useRef(micPitchFrame);
   const lastProcessedFrameIdRef = useRef<number | null>(null);
-  const chartCalibrationOffsetsRef = useRef<number[]>([]);
+  const guideCalibrationRef = useRef<PracticePitchCalibration>(emptyGuideCalibration());
   const singableRef = useRef<number | null>(null);
   const lastRunTimeRef = useRef(0);
   const chartNotes = useMemo(() => extractChartNotes(segments), [segments]);
@@ -174,10 +240,10 @@ export function usePitchScoring(
     stabilizerRef.current.reset();
     liveDisplayRef.current.reset();
     lastProcessedFrameIdRef.current = null;
-    chartCalibrationOffsetsRef.current = [];
     lastRunTimeRef.current = 0;
 
     const vocals = getVocalsBuffer();
+    guideCalibrationRef.current = computeGuideVocalChartOffset(vocals, chartNotes);
     const singable = vocals ? computeSingableTime(vocals) : duration;
     singableRef.current = singable;
     scoringRef.current = new PitchScoring(singable);
@@ -206,7 +272,6 @@ export function usePitchScoring(
         stabilizerRef.current.reset();
         liveDisplayRef.current.reset();
         lastProcessedFrameIdRef.current = null;
-        chartCalibrationOffsetsRef.current = [];
         setSeries(bufferRef.current.snapshot());
         setDebug(EMPTY_DEBUG);
       }
@@ -244,6 +309,14 @@ export function usePitchScoring(
           micToChartOffset: liveStatus.micToChartOffset ?? null,
           micToChartOffsetSampleCount: liveStatus.micToChartOffsetSampleCount ?? 0,
           micToChartOffsetLocked: liveStatus.micToChartOffsetLocked ?? false,
+          activeOffsetSource: liveStatus.offsetSource ?? null,
+          userMicOffset: liveStatus.userMicOffset ?? null,
+          userMicSampleCount: liveStatus.userMicOffsetSampleCount ?? 0,
+          userMicLocked: liveStatus.userMicOffsetLocked ?? false,
+          guideVocalOffset: guideCalibrationRef.current.midiOffset,
+          guideVocalSampleCount: guideCalibrationRef.current.sampleCount,
+          guideVocalConfidence: guideCalibrationRef.current.confidence,
+          guideVocalQuality: guideCalibrationRef.current.quality,
         });
         if (decision.dropReason !== "already-processed") {
           bufferRef.current.markTraceBreak();
@@ -277,15 +350,18 @@ export function usePitchScoring(
       const rawMicMidi = detectedMicMidi;
       const notes = chartNotesRef.current;
       const chartNote = expectedNoteAtTime(notes, micSongTime, CHART_EXPECTED_TOLERANCE_SEC);
-      const currentChartOffset = median(chartCalibrationOffsetsRef.current);
-      const currentChartOffsetSamples = chartCalibrationOffsetsRef.current.length;
+      const guideCalibration = guideCalibrationRef.current;
+      const guideArgs = guideOffsetArgs(guideCalibration);
+      const fallbackStatus = liveDisplayRef.current.status();
+      const activeDisplayOffset =
+        guideArgs.guideOffset ??
+        (fallbackStatus.userMicOffsetLocked ? (fallbackStatus.userMicOffset ?? null) : null);
 
       if (!frame.voiced || !rawDetectorFrame) {
         stabilizerRef.current.stabilize(null);
         const liveDisplay = liveDisplayRef.current.mapSilence({
           chartPitch: chartNote?.pitch ?? null,
-          guideOffset: currentChartOffset,
-          guideSampleCount: currentChartOffsetSamples,
+          ...guideArgs,
         });
         bufferRef.current.tryPush(
           null,
@@ -322,14 +398,7 @@ export function usePitchScoring(
           scored: false,
           traceBreakInserted: false,
           dropReason: "unvoiced",
-          liveDisplayPitch: liveDisplay.displayPitch ?? null,
-          expectedChartPitch: liveDisplay.expectedChartPitch ?? null,
-          liveCentsFromExpected: liveDisplay.centsFromExpected ?? null,
-          liveRegisterOffset: liveDisplay.registerOffset ?? null,
-          micToChartOffset: liveDisplay.micToChartOffset ?? null,
-          micToChartOffsetSampleCount: liveDisplay.micToChartOffsetSampleCount ?? 0,
-          micToChartOffsetLocked: liveDisplay.micToChartOffsetLocked ?? false,
-          liveKind: liveDisplay.kind ?? null,
+          ...debugFromLiveDisplay(liveDisplay),
         });
         return;
       }
@@ -345,27 +414,22 @@ export function usePitchScoring(
         );
       }
 
-      if (chartNote && refHz != null) {
-        const offsets = chartCalibrationOffsetsRef.current;
-        offsets.push(freqToSemitone(refHz) - chartNote.pitch);
-        while (offsets.length > CHART_CALIBRATION_SAMPLES) {
-          offsets.shift();
-        }
-      }
-
-      const chartOffset = median(chartCalibrationOffsetsRef.current);
       const chartExpectedHz =
-        chartNote && chartOffset != null ? semitoneToFreq(chartNote.pitch + chartOffset) : null;
+        chartNote && activeDisplayOffset != null
+          ? semitoneToFreq(chartNote.pitch + activeDisplayOffset)
+          : null;
       const comparisonHz = refHz ?? chartExpectedHz;
       const hasExpectedPitch = comparisonHz != null || chartNote != null;
 
       if (!hasExpectedPitch) {
         stabilizerRef.current.stabilize(null);
         const liveDisplay = liveDisplayRef.current.mapVoiced({
-          rawMidi: calibratedMicMidi,
+          displayMidi: calibratedMicMidi,
+          registerMidi: rawMicMidi,
           chartPitch: null,
-          guideOffset: chartOffset,
-          guideSampleCount: chartCalibrationOffsetsRef.current.length,
+          ...guideArgs,
+          clarity: frame.clarity,
+          rms: frame.rms,
           scored: false,
         });
         bufferRef.current.tryPush(
@@ -403,14 +467,7 @@ export function usePitchScoring(
           scored: false,
           traceBreakInserted: false,
           dropReason: "no-expected-pitch",
-          liveDisplayPitch: liveDisplay.displayPitch ?? null,
-          expectedChartPitch: liveDisplay.expectedChartPitch ?? null,
-          liveCentsFromExpected: liveDisplay.centsFromExpected ?? null,
-          liveRegisterOffset: liveDisplay.registerOffset ?? null,
-          micToChartOffset: liveDisplay.micToChartOffset ?? null,
-          micToChartOffsetSampleCount: liveDisplay.micToChartOffsetSampleCount ?? 0,
-          micToChartOffsetLocked: liveDisplay.micToChartOffsetLocked ?? false,
-          liveKind: liveDisplay.kind ?? null,
+          ...debugFromLiveDisplay(liveDisplay),
         });
         return;
       }
@@ -429,14 +486,6 @@ export function usePitchScoring(
         comparisonHz,
         stabilizedHz: stabilizedMic,
       });
-      const liveDisplay = liveDisplayRef.current.mapVoiced({
-        rawMidi: calibratedMicMidi,
-        chartPitch: chartNote?.pitch ?? null,
-        guideOffset: chartOffset,
-        guideSampleCount: chartCalibrationOffsetsRef.current.length,
-        scored,
-      });
-      const displayed = liveDisplay.displayPitch != null && liveDisplay.kind === "voiced";
       const dropReason: PitchScoringDropReason =
         stabilizedMic == null
           ? stabilizerStatus.reacquiring
@@ -445,6 +494,24 @@ export function usePitchScoring(
               ? "unvoiced"
               : "outlier"
           : null;
+      const stabilizedMidi = hzToMidi(stabilizedMic);
+      const liveDisplay =
+        stabilizedMidi == null
+          ? liveDisplayRef.current.mapSilence({
+              chartPitch: chartNote?.pitch ?? null,
+              ...guideArgs,
+              dropReason: dropReason === "outlier" ? "outlier" : "unvoiced",
+            })
+          : liveDisplayRef.current.mapVoiced({
+              displayMidi: stabilizedMidi,
+              registerMidi: rawMicMidi ?? stabilizedMidi,
+              chartPitch: chartNote?.pitch ?? null,
+              ...guideArgs,
+              clarity: frame.clarity,
+              rms: frame.rms,
+              scored,
+            });
+      const displayed = liveDisplay.displayPitch != null && liveDisplay.kind === "voiced";
 
       if (!displayed) {
         bufferRef.current.markTraceBreak();
@@ -473,7 +540,7 @@ export function usePitchScoring(
         rawHz: rawMicHz,
         stabilizedHz: stabilizedMic,
         rawMidi: rawMicMidi,
-        stabilizedMidi: hzToMidi(stabilizedMic),
+        stabilizedMidi,
         clarity: frame.clarity,
         rms: frame.rms,
         frameAgeMs: decision.ageMs,
@@ -487,14 +554,7 @@ export function usePitchScoring(
         scored,
         traceBreakInserted: !displayed,
         dropReason,
-        liveDisplayPitch: liveDisplay.displayPitch ?? null,
-        expectedChartPitch: liveDisplay.expectedChartPitch ?? null,
-        liveCentsFromExpected: liveDisplay.centsFromExpected ?? null,
-        liveRegisterOffset: liveDisplay.registerOffset ?? null,
-        micToChartOffset: liveDisplay.micToChartOffset ?? null,
-        micToChartOffsetSampleCount: liveDisplay.micToChartOffsetSampleCount ?? 0,
-        micToChartOffsetLocked: liveDisplay.micToChartOffsetLocked ?? false,
-        liveKind: liveDisplay.kind ?? null,
+        ...debugFromLiveDisplay(liveDisplay),
       });
     };
 

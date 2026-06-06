@@ -51,7 +51,9 @@ export interface PracticeMissingChartData {
 export interface PracticePitchCalibration {
   midiOffset: number | null;
   sampleCount: number;
-  source: "reference" | "none";
+  source: "guide-vocal" | "user-mic" | "reference" | "none";
+  confidence: number;
+  quality: "none" | "low" | "ok" | "good";
 }
 
 export interface PracticeVerticalRange {
@@ -232,7 +234,7 @@ export function computeChartPitchCalibration(
   chartNotes: PracticeExpectedNote[],
 ): PracticePitchCalibration {
   if (chartNotes.length === 0) {
-    return { midiOffset: null, sampleCount: 0, source: "none" };
+    return { midiOffset: null, sampleCount: 0, source: "none", confidence: 0, quality: "none" };
   }
 
   const offsets: number[] = [];
@@ -251,6 +253,8 @@ export function computeChartPitchCalibration(
     midiOffset: median(offsets),
     sampleCount: offsets.length,
     source: offsets.length > 0 ? "reference" : "none",
+    confidence: Math.min(1, offsets.length / FALLBACK_SAMPLE_COUNT),
+    quality: offsets.length === 0 ? "none" : offsets.length >= FALLBACK_SAMPLE_COUNT ? "ok" : "low",
   };
 }
 
@@ -435,9 +439,17 @@ function storedLiveVoiceTracePoint(
     absoluteOctaveOffsetFromExpected: series.liveRegisterOffset?.[index] ?? null,
     baselineOctaveOffset: null,
     baselineRelativeOctaveOffset: null,
+    offsetSource: series.liveOffsetSource?.[index] ?? null,
     micToChartOffset: series.micToChartOffsetAtFrame?.[index] ?? null,
     micToChartOffsetSampleCount: series.micToChartOffsetSampleCount?.[index] ?? 0,
     micToChartOffsetLocked: series.micToChartOffsetLocked?.[index] ?? false,
+    guideVocalOffset: series.guideVocalOffsetAtFrame?.[index] ?? null,
+    guideVocalOffsetSampleCount: series.guideVocalOffsetSampleCount?.[index] ?? 0,
+    guideVocalConfidence: series.guideVocalConfidenceAtFrame?.[index] ?? 0,
+    guideVocalQuality: series.guideVocalQualityAtFrame?.[index] ?? null,
+    userMicOffset: series.userMicOffsetAtFrame?.[index] ?? null,
+    userMicOffsetSampleCount: series.userMicOffsetSampleCount?.[index] ?? 0,
+    userMicOffsetLocked: series.userMicOffsetLocked?.[index] ?? false,
     clarity: series.rawMicClarity?.[index] ?? null,
     rms: series.rawMicRms?.[index] ?? null,
     voiced: kind === "voiced",
@@ -445,7 +457,7 @@ function storedLiveVoiceTracePoint(
     traceBreak: series.traceBreaks?.[index] ?? false,
     accepted: kind === "voiced",
     scored: series.livePointScored?.[index] ?? false,
-    dropReason: kind === "silence" ? "unvoiced" : undefined,
+    dropReason: series.liveDropReason?.[index] ?? (kind === "silence" ? "unvoiced" : undefined),
     pitch: displayPitch,
   };
 }
@@ -477,9 +489,17 @@ function legacyRawLiveVoiceTracePoint(
       absoluteOctaveOffsetFromExpected: null,
       baselineOctaveOffset: null,
       baselineRelativeOctaveOffset: null,
+      offsetSource: null,
       micToChartOffset: null,
       micToChartOffsetSampleCount: 0,
       micToChartOffsetLocked: false,
+      guideVocalOffset: null,
+      guideVocalOffsetSampleCount: 0,
+      guideVocalConfidence: 0,
+      guideVocalQuality: null,
+      userMicOffset: null,
+      userMicOffsetSampleCount: 0,
+      userMicOffsetLocked: false,
       clarity: series.rawMicClarity?.[index] ?? null,
       rms: series.rawMicRms?.[index] ?? null,
       voiced: true,
@@ -713,11 +733,20 @@ export function filterPitchSeriesSince(series: PitchSeries, startTime: number): 
   const liveCentsFromExpected: (number | null)[] = [];
   const liveRegisterOffset: (number | null)[] = [];
   const liveKind: (PitchLiveDisplayKind | null)[] = [];
+  const liveDropReason: NonNullable<PitchSeries["liveDropReason"]> = [];
+  const liveOffsetSource: NonNullable<PitchSeries["liveOffsetSource"]> = [];
   const expectedChartPitchAtFrame: (number | null)[] = [];
   const liveExpectedRawMidi: (number | null)[] = [];
   const micToChartOffsetAtFrame: (number | null)[] = [];
   const micToChartOffsetSampleCount: number[] = [];
   const micToChartOffsetLocked: boolean[] = [];
+  const guideVocalOffsetAtFrame: (number | null)[] = [];
+  const guideVocalOffsetSampleCount: number[] = [];
+  const guideVocalConfidenceAtFrame: number[] = [];
+  const guideVocalQualityAtFrame: NonNullable<PitchSeries["guideVocalQualityAtFrame"]> = [];
+  const userMicOffsetAtFrame: (number | null)[] = [];
+  const userMicOffsetSampleCount: number[] = [];
+  const userMicOffsetLocked: boolean[] = [];
   const livePointScored: boolean[] = [];
   const similarities: number[] = [];
   const times: number[] = [];
@@ -741,11 +770,20 @@ export function filterPitchSeriesSince(series: PitchSeries, startTime: number): 
     liveCentsFromExpected.push(series.liveCentsFromExpected?.[i] ?? null);
     liveRegisterOffset.push(series.liveRegisterOffset?.[i] ?? null);
     liveKind.push(series.liveKind?.[i] ?? null);
+    liveDropReason.push(series.liveDropReason?.[i] ?? null);
+    liveOffsetSource.push(series.liveOffsetSource?.[i] ?? null);
     expectedChartPitchAtFrame.push(series.expectedChartPitchAtFrame?.[i] ?? null);
     liveExpectedRawMidi.push(series.liveExpectedRawMidi?.[i] ?? null);
     micToChartOffsetAtFrame.push(series.micToChartOffsetAtFrame?.[i] ?? null);
     micToChartOffsetSampleCount.push(series.micToChartOffsetSampleCount?.[i] ?? 0);
     micToChartOffsetLocked.push(series.micToChartOffsetLocked?.[i] ?? false);
+    guideVocalOffsetAtFrame.push(series.guideVocalOffsetAtFrame?.[i] ?? null);
+    guideVocalOffsetSampleCount.push(series.guideVocalOffsetSampleCount?.[i] ?? 0);
+    guideVocalConfidenceAtFrame.push(series.guideVocalConfidenceAtFrame?.[i] ?? 0);
+    guideVocalQualityAtFrame.push(series.guideVocalQualityAtFrame?.[i] ?? null);
+    userMicOffsetAtFrame.push(series.userMicOffsetAtFrame?.[i] ?? null);
+    userMicOffsetSampleCount.push(series.userMicOffsetSampleCount?.[i] ?? 0);
+    userMicOffsetLocked.push(series.userMicOffsetLocked?.[i] ?? false);
     livePointScored.push(series.livePointScored?.[i] ?? false);
     similarities.push(series.similarities[i] ?? 0);
     times.push(series.times[i]);
@@ -769,11 +807,20 @@ export function filterPitchSeriesSince(series: PitchSeries, startTime: number): 
     liveCentsFromExpected,
     liveRegisterOffset,
     liveKind,
+    liveDropReason,
+    liveOffsetSource,
     expectedChartPitchAtFrame,
     liveExpectedRawMidi,
     micToChartOffsetAtFrame,
     micToChartOffsetSampleCount,
     micToChartOffsetLocked,
+    guideVocalOffsetAtFrame,
+    guideVocalOffsetSampleCount,
+    guideVocalConfidenceAtFrame,
+    guideVocalQualityAtFrame,
+    userMicOffsetAtFrame,
+    userMicOffsetSampleCount,
+    userMicOffsetLocked,
     livePointScored,
     similarities,
     times,

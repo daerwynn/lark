@@ -60,11 +60,20 @@ export function calibrationPitchSeriesFromFrames(
   const liveCentsFromExpected: (number | null)[] = [];
   const liveRegisterOffset: (number | null)[] = [];
   const liveKind: ("voiced" | "silence" | null)[] = [];
+  const liveDropReason: ("unvoiced" | null)[] = [];
+  const liveOffsetSource: ("guide-vocal" | "none" | null)[] = [];
   const expectedChartPitchAtFrame: (number | null)[] = [];
   const liveExpectedRawMidi: (number | null)[] = [];
   const micToChartOffsetAtFrame: (number | null)[] = [];
   const micToChartOffsetSampleCount: number[] = [];
   const micToChartOffsetLocked: boolean[] = [];
+  const guideVocalOffsetAtFrame: (number | null)[] = [];
+  const guideVocalOffsetSampleCount: number[] = [];
+  const guideVocalConfidenceAtFrame: number[] = [];
+  const guideVocalQualityAtFrame: ("none" | "ok" | null)[] = [];
+  const userMicOffsetAtFrame: (number | null)[] = [];
+  const userMicOffsetSampleCount: number[] = [];
+  const userMicOffsetLocked: boolean[] = [];
   const livePointScored: boolean[] = [];
   const similarities: number[] = [];
   const times: number[] = [];
@@ -93,11 +102,20 @@ export function calibrationPitchSeriesFromFrames(
       expectedMidi != null && userMidi != null ? Math.round((userMidi - expectedMidi) / 12) : null,
     );
     liveKind.push(userHz == null ? "silence" : "voiced");
+    liveDropReason.push(userHz == null ? "unvoiced" : null);
+    liveOffsetSource.push(expectedMidi != null ? "guide-vocal" : "none");
     expectedChartPitchAtFrame.push(expectedMidi);
     liveExpectedRawMidi.push(expectedMidi);
     micToChartOffsetAtFrame.push(0);
     micToChartOffsetSampleCount.push(0);
     micToChartOffsetLocked.push(expectedMidi != null);
+    guideVocalOffsetAtFrame.push(expectedMidi != null ? 0 : null);
+    guideVocalOffsetSampleCount.push(expectedMidi != null ? 1 : 0);
+    guideVocalConfidenceAtFrame.push(expectedMidi != null ? 1 : 0);
+    guideVocalQualityAtFrame.push(expectedMidi != null ? "ok" : "none");
+    userMicOffsetAtFrame.push(null);
+    userMicOffsetSampleCount.push(0);
+    userMicOffsetLocked.push(false);
     livePointScored.push(refHz != null && userHz != null);
     similarities.push(refHz != null && userHz != null ? pitchSimilarity(refHz, userHz) : 0);
     times.push(frame.timeSec);
@@ -118,11 +136,20 @@ export function calibrationPitchSeriesFromFrames(
     liveCentsFromExpected,
     liveRegisterOffset,
     liveKind,
+    liveDropReason,
+    liveOffsetSource,
     expectedChartPitchAtFrame,
     liveExpectedRawMidi,
     micToChartOffsetAtFrame,
     micToChartOffsetSampleCount,
     micToChartOffsetLocked,
+    guideVocalOffsetAtFrame,
+    guideVocalOffsetSampleCount,
+    guideVocalConfidenceAtFrame,
+    guideVocalQualityAtFrame,
+    userMicOffsetAtFrame,
+    userMicOffsetSampleCount,
+    userMicOffsetLocked,
     livePointScored,
     similarities,
     times,

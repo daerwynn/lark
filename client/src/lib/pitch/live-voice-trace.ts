@@ -1,4 +1,9 @@
 import type { PracticePitchFeedbackSettings } from "@/lib/practice/practice-settings";
+import type {
+  PitchLiveDisplayCalibrationQuality,
+  PitchLiveDisplayDropReason,
+  PitchLiveDisplayOffsetSource,
+} from "./state";
 import { freqToSemitone, semitoneToFreq } from "./state";
 
 export type LiveVoiceAccuracy = "green" | "yellow" | "orange" | "red" | "none";
@@ -20,9 +25,17 @@ export interface LiveVoiceTracePoint {
   absoluteOctaveOffsetFromExpected: number | null;
   baselineOctaveOffset: number | null;
   baselineRelativeOctaveOffset: number | null;
+  offsetSource: PitchLiveDisplayOffsetSource | null;
   micToChartOffset: number | null;
   micToChartOffsetSampleCount: number;
   micToChartOffsetLocked: boolean;
+  guideVocalOffset: number | null;
+  guideVocalOffsetSampleCount: number;
+  guideVocalConfidence: number;
+  guideVocalQuality: PitchLiveDisplayCalibrationQuality | null;
+  userMicOffset: number | null;
+  userMicOffsetSampleCount: number;
+  userMicOffsetLocked: boolean;
   clarity: number | null;
   rms: number | null;
   voiced: boolean;
@@ -30,7 +43,7 @@ export interface LiveVoiceTracePoint {
   traceBreak: boolean;
   accepted: boolean;
   scored: boolean;
-  dropReason?: string;
+  dropReason?: PitchLiveDisplayDropReason;
   pitch: number;
 }
 
@@ -189,9 +202,17 @@ export function buildRawLiveVoiceTracePoint({
     absoluteOctaveOffsetFromExpected: normalized?.absoluteOctaveOffsetFromExpected ?? null,
     baselineOctaveOffset: normalized?.baselineOctaveOffset ?? null,
     baselineRelativeOctaveOffset: normalized?.baselineRelativeOctaveOffset ?? null,
+    offsetSource: null,
     micToChartOffset: null,
     micToChartOffsetSampleCount: 0,
     micToChartOffsetLocked: false,
+    guideVocalOffset: null,
+    guideVocalOffsetSampleCount: 0,
+    guideVocalConfidence: 0,
+    guideVocalQuality: null,
+    userMicOffset: null,
+    userMicOffsetSampleCount: 0,
+    userMicOffsetLocked: false,
     clarity,
     rms,
     voiced: true,
@@ -231,9 +252,17 @@ export function buildLiveVoiceSilencePoint({
     absoluteOctaveOffsetFromExpected: null,
     baselineOctaveOffset: null,
     baselineRelativeOctaveOffset: null,
+    offsetSource: null,
     micToChartOffset: null,
     micToChartOffsetSampleCount: 0,
     micToChartOffsetLocked: false,
+    guideVocalOffset: null,
+    guideVocalOffsetSampleCount: 0,
+    guideVocalConfidence: 0,
+    guideVocalQuality: null,
+    userMicOffset: null,
+    userMicOffsetSampleCount: 0,
+    userMicOffsetLocked: false,
     clarity,
     rms,
     voiced: false,
@@ -277,9 +306,17 @@ export function buildLiveVoiceTracePoint({
       absoluteOctaveOffsetFromExpected: null,
       baselineOctaveOffset: null,
       baselineRelativeOctaveOffset: null,
+      offsetSource: null,
       micToChartOffset: null,
       micToChartOffsetSampleCount: 0,
       micToChartOffsetLocked: false,
+      guideVocalOffset: null,
+      guideVocalOffsetSampleCount: 0,
+      guideVocalConfidence: 0,
+      guideVocalQuality: null,
+      userMicOffset: null,
+      userMicOffsetSampleCount: 0,
+      userMicOffsetLocked: false,
       clarity,
       rms,
       voiced: true,
@@ -312,9 +349,17 @@ export function buildLiveVoiceTracePoint({
     absoluteOctaveOffsetFromExpected: normalized.absoluteOctaveOffsetFromExpected,
     baselineOctaveOffset: normalized.baselineOctaveOffset,
     baselineRelativeOctaveOffset: normalized.baselineRelativeOctaveOffset,
+    offsetSource: null,
     micToChartOffset: null,
     micToChartOffsetSampleCount: 0,
     micToChartOffsetLocked: false,
+    guideVocalOffset: null,
+    guideVocalOffsetSampleCount: 0,
+    guideVocalConfidence: 0,
+    guideVocalQuality: null,
+    userMicOffset: null,
+    userMicOffsetSampleCount: 0,
+    userMicOffsetLocked: false,
     clarity,
     rms,
     voiced: true,
