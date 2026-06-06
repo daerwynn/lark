@@ -5,6 +5,8 @@ import {
   computeGuideVocalChartOffsetFromDetections,
   foldOffsetsToBestCluster,
   isUsableGuideVocalCalibration,
+  isUsableGuideVocalTiming,
+  summarizeGuideVocalTimingSamples,
 } from "./guide-vocal-calibration";
 
 describe("guide vocal chart calibration", () => {
@@ -56,5 +58,36 @@ describe("guide vocal chart calibration", () => {
     expect(calibration.sampleCount).toBe(8);
     expect(calibration.quality).toBe("low");
     expect(isUsableGuideVocalCalibration(calibration)).toBe(false);
+  });
+
+  it("accepts stable guide vocal timing diagnostics", () => {
+    const diagnostics = summarizeGuideVocalTimingSamples(
+      Array.from({ length: 24 }, (_, noteIndex) => ({
+        noteIndex,
+        noteCount: 24,
+        offsetSec: noteIndex < 12 ? 0.03 : 0.04,
+      })),
+    );
+
+    expect(diagnostics.sampleCount).toBe(24);
+    expect(diagnostics.medianOffsetSec).toBeCloseTo(0.035);
+    expect(diagnostics.driftSec).toBeCloseTo(0.01);
+    expect(diagnostics.quality).toBe("good");
+    expect(diagnostics.warning).toBeNull();
+    expect(isUsableGuideVocalTiming(diagnostics)).toBe(true);
+  });
+
+  it("rejects drifting guide vocal timing diagnostics", () => {
+    const diagnostics = summarizeGuideVocalTimingSamples(
+      Array.from({ length: 24 }, (_, noteIndex) => ({
+        noteIndex,
+        noteCount: 24,
+        offsetSec: noteIndex < 8 ? -0.16 : noteIndex > 15 ? 0.16 : 0,
+      })),
+    );
+
+    expect(diagnostics.quality).toBe("poor");
+    expect(diagnostics.warning).toContain("USDX/audio timing mismatch");
+    expect(isUsableGuideVocalTiming(diagnostics)).toBe(false);
   });
 });

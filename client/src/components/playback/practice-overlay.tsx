@@ -1,6 +1,8 @@
 import { usePlaybackTransportActions, usePlaybackTransportState } from "@/contexts/playback";
 import type { PracticeLoopControls } from "@/hooks/playback";
 import type { PitchScoringDebug } from "@/hooks/use-pitch-scoring";
+import type { GuideVocalTimingDiagnostics } from "@/lib/pitch/guide-vocal-calibration";
+import type { MicMonitorStatus } from "@/types/MicMonitorStatus";
 import { shortcutHint, type PlaybackShortcutBindings } from "@/lib/playback/keybindings";
 import { formatPlaybackTime } from "@/lib/playback/transport-controls";
 import {
@@ -20,12 +22,12 @@ import {
 import {
   buildPracticeLaneModel,
   DEFAULT_PRACTICE_RANGE,
+  estimateMicLatencyAdjustment,
   filterPitchSeriesSince,
   isPracticeSegmentDisplayVisible,
   MAX_PRACTICE_RANGE,
   MIN_PRACTICE_RANGE,
   practicePitchToY,
-  practiceTimeToX,
   PRACTICE_LANE_PADDING_Y,
   PRACTICE_WINDOW_AFTER,
   PRACTICE_WINDOW_BEFORE,
@@ -49,19 +51,33 @@ interface PracticeOverlayProps {
   segments: Segment[];
   series: PitchSeries;
   micDebug: PitchScoringDebug;
+  timingDiagnostics: GuideVocalTimingDiagnostics;
   micCaptureActive: boolean;
   micPitchActive: boolean;
+  monitorStatus: MicMonitorStatus | null;
   loop: PracticeLoopControls;
   settings: PracticeSettings;
   keybindings: PlaybackShortcutBindings;
   lyricDisplayOffsetSec?: number;
   lyricLeadSec?: number;
+  duration: number;
+  onClearAttempt: () => void;
+  onRestartAttempt: () => void;
+  onLiveTraceOffsetAdjustment: (deltaMs: number) => void;
 }
 
 interface Size {
   width: number;
   height: number;
 }
+
+interface PracticeViewport {
+  center: number;
+  before: number;
+  after: number;
+}
+
+type PracticeViewMode = "follow" | "review";
 
 const GRID_LINES = 7;
 const LANE_PADDING_X = 20;
@@ -74,6 +90,9 @@ const USER_OK = "rgba(255, 218, 82, 0.95)";
 const USER_LOW = "rgba(255, 88, 88, 0.95)";
 const LOOP_BAND = "rgba(255, 255, 255, 0.08)";
 const LOOP_EDGE = "rgba(255, 255, 255, 0.72)";
+const DEFAULT_VIEW_WINDOW_SEC = PRACTICE_WINDOW_BEFORE + PRACTICE_WINDOW_AFTER;
+const MIN_VIEW_WINDOW_SEC = 6;
+const MAX_VIEW_WINDOW_SEC = 120;
 const FEEDBACK_GLOW: Record<PitchFeedbackLevel, string> = {
   orange: "rgba(255, 145, 58, 0.9)",
   yellow: "rgba(255, 230, 84, 0.95)",
@@ -116,8 +135,26 @@ function setupCanvas(canvas: HTMLCanvasElement, size: Size): CanvasRenderingCont
   return ctx;
 }
 
-function timeToX(time: number, currentTime: number, width: number): number {
-  return practiceTimeToX({ time, currentTime, width });
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
+}
+
+function buildViewport(center: number, windowSec: number): PracticeViewport {
+  const total = clamp(windowSec, MIN_VIEW_WINDOW_SEC, MAX_VIEW_WINDOW_SEC);
+  const ratioBefore = PRACTICE_WINDOW_BEFORE / DEFAULT_VIEW_WINDOW_SEC;
+
+  return {
+    center,
+    before: total * ratioBefore,
+    after: total * (1 - ratioBefore),
+  };
+}
+
+function timeToX(time: number, viewport: PracticeViewport, width: number): number {
+  const start = viewport.center - viewport.before;
+  const total = viewport.before + viewport.after;
+
+  return ((time - start) / total) * width;
 }
 
 function pitchToY(pitch: number, model: PracticeLaneModel, height: number): number {
@@ -150,7 +187,13 @@ function loopSummary(loop: PracticeLoopControls): string {
   return "Loop: none";
 }
 
-function drawGrid(ctx: CanvasRenderingContext2D, size: Size, model: PracticeLaneModel): void {
+function drawGrid(
+  ctx: CanvasRenderingContext2D,
+  size: Size,
+  model: PracticeLaneModel,
+  viewport: PracticeViewport,
+  playbackTime: number,
+): void {
   ctx.save();
   ctx.lineWidth = 1;
   ctx.strokeStyle = "rgba(255,255,255,0.13)";
@@ -169,8 +212,7 @@ function drawGrid(ctx: CanvasRenderingContext2D, size: Size, model: PracticeLane
     ctx.fillText(String(Math.round(pitch)), 8, y);
   }
 
-  const nowX =
-    (PRACTICE_WINDOW_BEFORE / (PRACTICE_WINDOW_BEFORE + PRACTICE_WINDOW_AFTER)) * size.width;
+  const nowX = timeToX(playbackTime, viewport, size.width);
   ctx.strokeStyle = "rgba(255,255,255,0.55)";
   ctx.lineWidth = 2;
   ctx.beginPath();
@@ -183,13 +225,13 @@ function drawGrid(ctx: CanvasRenderingContext2D, size: Size, model: PracticeLane
 function drawLoopRange(
   ctx: CanvasRenderingContext2D,
   size: Size,
-  currentTime: number,
+  viewport: PracticeViewport,
   range: PracticeLoopRange | null,
 ): void {
   if (!range) return;
 
-  const x1 = timeToX(range.start, currentTime, size.width);
-  const x2 = timeToX(range.end, currentTime, size.width);
+  const x1 = timeToX(range.start, viewport, size.width);
+  const x2 = timeToX(range.end, viewport, size.width);
   const left = Math.max(0, Math.min(x1, x2));
   const right = Math.min(size.width, Math.max(x1, x2));
 
@@ -219,7 +261,7 @@ function drawChartNotes(
   ctx: CanvasRenderingContext2D,
   size: Size,
   model: PracticeLaneModel,
-  currentTime: number,
+  viewport: PracticeViewport,
 ): void {
   ctx.save();
   ctx.lineJoin = "round";
@@ -227,8 +269,8 @@ function drawChartNotes(
   ctx.textBaseline = "middle";
 
   for (const note of model.expectedNotes) {
-    const x1 = timeToX(note.start, currentTime, size.width);
-    const x2 = timeToX(note.end, currentTime, size.width);
+    const x1 = timeToX(note.start, viewport, size.width);
+    const x2 = timeToX(note.end, viewport, size.width);
     if (x2 < 0 || x1 > size.width) continue;
 
     const x = Math.max(LANE_PADDING_X, x1);
@@ -257,7 +299,8 @@ function drawPitchFeedbackGlow(
   ctx: CanvasRenderingContext2D,
   size: Size,
   model: PracticeLaneModel,
-  currentTime: number,
+  viewport: PracticeViewport,
+  playbackTime: number,
   level: PitchFeedbackLevel | null,
 ): void {
   const note = model.currentExpectedNote;
@@ -265,10 +308,9 @@ function drawPitchFeedbackGlow(
 
   const color = FEEDBACK_GLOW[level];
   const y = pitchToY(note.pitch, model, size.height);
-  const noteStartX = timeToX(note.start, currentTime, size.width);
-  const noteEndX = timeToX(note.end, currentTime, size.width);
-  const nowX =
-    (PRACTICE_WINDOW_BEFORE / (PRACTICE_WINDOW_BEFORE + PRACTICE_WINDOW_AFTER)) * size.width;
+  const noteStartX = timeToX(note.start, viewport, size.width);
+  const noteEndX = timeToX(note.end, viewport, size.width);
+  const nowX = timeToX(playbackTime, viewport, size.width);
   const hasDuration = note.end - note.start > 0.05;
   const left = hasDuration ? Math.max(0, Math.min(noteStartX, noteEndX)) : Math.max(0, nowX - 80);
   const right = hasDuration
@@ -295,7 +337,7 @@ function drawTrace(
   ctx: CanvasRenderingContext2D,
   size: Size,
   model: PracticeLaneModel,
-  currentTime: number,
+  viewport: PracticeViewport,
   points: PracticeTracePoint[],
   options: { lineWidth: number; color?: string; bySimilarity?: boolean },
 ): void {
@@ -309,8 +351,8 @@ function drawTrace(
     const point = points[i];
     if (!shouldConnectTracePoints(prev, point)) continue;
 
-    const x1 = timeToX(prev.time, currentTime, size.width);
-    const x2 = timeToX(point.time, currentTime, size.width);
+    const x1 = timeToX(prev.time, viewport, size.width);
+    const x2 = timeToX(point.time, viewport, size.width);
     if ((x1 < 0 && x2 < 0) || (x1 > size.width && x2 > size.width)) continue;
 
     ctx.strokeStyle = options.bySimilarity
@@ -329,7 +371,7 @@ function drawLiveVoiceTrace(
   ctx: CanvasRenderingContext2D,
   size: Size,
   model: PracticeLaneModel,
-  currentTime: number,
+  viewport: PracticeViewport,
   points: LiveVoiceTracePoint[],
   settings: PracticeSettings,
   options: {
@@ -349,8 +391,8 @@ function drawLiveVoiceTrace(
     const point = points[i];
     if (!shouldConnectLiveVoiceTracePoints(prev, point, options.maxGapSec)) continue;
 
-    const x1 = timeToX(prev.time, currentTime, size.width);
-    const x2 = timeToX(point.time, currentTime, size.width);
+    const x1 = timeToX(prev.time, viewport, size.width);
+    const x2 = timeToX(point.time, viewport, size.width);
     if ((x1 < 0 && x2 < 0) || (x1 > size.width && x2 > size.width)) continue;
 
     ctx.lineWidth =
@@ -374,13 +416,13 @@ function drawLatestLiveVoiceMarker(
   ctx: CanvasRenderingContext2D,
   size: Size,
   model: PracticeLaneModel,
-  currentTime: number,
+  viewport: PracticeViewport,
   settings: PracticeSettings,
 ): void {
   const point = model.latestLiveVoicePoint;
   if (!point) return;
 
-  const x = timeToX(point.time, currentTime, size.width);
+  const x = timeToX(point.time, viewport, size.width);
   if (x < 0 || x > size.width) return;
 
   const y = pitchToY(point.pitch, model, size.height);
@@ -400,7 +442,8 @@ function drawLane(
   canvas: HTMLCanvasElement,
   size: Size,
   model: PracticeLaneModel,
-  currentTime: number,
+  playbackTime: number,
+  viewport: PracticeViewport,
   loopRange: PracticeLoopRange | null,
   feedbackLevel: PitchFeedbackLevel | null,
   showDebugTrace: boolean,
@@ -411,33 +454,33 @@ function drawLane(
 
   ctx.fillStyle = "rgba(0, 0, 0, 0.34)";
   ctx.fillRect(0, 0, size.width, size.height);
-  drawGrid(ctx, size, model);
-  drawLoopRange(ctx, size, currentTime, loopRange);
-  drawPitchFeedbackGlow(ctx, size, model, currentTime, feedbackLevel);
+  drawGrid(ctx, size, model, viewport, playbackTime);
+  drawLoopRange(ctx, size, viewport, loopRange);
+  drawPitchFeedbackGlow(ctx, size, model, viewport, playbackTime, feedbackLevel);
 
   if (model.expectedSource === "chart") {
-    drawChartNotes(ctx, size, model, currentTime);
+    drawChartNotes(ctx, size, model, viewport);
   } else {
-    drawTrace(ctx, size, model, currentTime, model.referenceTrace, {
+    drawTrace(ctx, size, model, viewport, model.referenceTrace, {
       lineWidth: 9,
       color: REF_COLOR,
     });
   }
 
-  drawLiveVoiceTrace(ctx, size, model, currentTime, model.rawLiveVoiceTrace, settings, {
+  drawLiveVoiceTrace(ctx, size, model, viewport, model.rawLiveVoiceTrace, settings, {
     lineWidth: 10,
     maxGapSec: RAW_LIVE_VOICE_MAX_CONNECTION_GAP_SEC,
     useScoredStyle: true,
   });
 
   if (showDebugTrace) {
-    drawLiveVoiceTrace(ctx, size, model, currentTime, model.chartRelativeVoiceTrace, settings, {
+    drawLiveVoiceTrace(ctx, size, model, viewport, model.chartRelativeVoiceTrace, settings, {
       lineWidth: 3,
       color: CHART_RELATIVE_TRACE_COLOR,
     });
   }
 
-  drawLatestLiveVoiceMarker(ctx, size, model, currentTime, settings);
+  drawLatestLiveVoiceMarker(ctx, size, model, viewport, settings);
 }
 
 function SourceLabel({ source }: { source: PracticeLaneModel["expectedSource"] }) {
@@ -466,11 +509,11 @@ function practiceDebugEnabled(): boolean {
 
 function countLiveVoicePointsInWindow(
   points: LiveVoiceTracePoint[],
-  currentTime: number,
+  viewport: PracticeViewport,
   kind?: LiveVoiceTracePoint["kind"],
 ): number {
-  const start = currentTime - PRACTICE_WINDOW_BEFORE;
-  const end = currentTime + PRACTICE_WINDOW_AFTER;
+  const start = viewport.center - viewport.before;
+  const end = viewport.center + viewport.after;
   return points.filter(
     (point) => point.time >= start && point.time <= end && (kind == null || point.kind === kind),
   ).length;
@@ -547,18 +590,28 @@ function PracticeOverlayImpl({
   segments,
   series,
   micDebug,
+  timingDiagnostics,
   micCaptureActive,
   micPitchActive,
+  monitorStatus,
   loop,
   settings,
   keybindings,
   lyricDisplayOffsetSec = 0,
   lyricLeadSec,
+  duration,
+  onClearAttempt,
+  onRestartAttempt,
+  onLiveTraceOffsetAdjustment,
 }: PracticeOverlayProps) {
   const { isPlaying } = usePlaybackTransportState();
   const { getCurrentTime, subscribe } = usePlaybackTransportActions();
   const [currentTime, setCurrentTime] = useState(() => getCurrentTime());
+  const [viewMode, setViewMode] = useState<PracticeViewMode>("follow");
+  const [reviewCenter, setReviewCenter] = useState(() => getCurrentTime());
+  const [viewWindowSec, setViewWindowSec] = useState(DEFAULT_VIEW_WINDOW_SEC);
   const [range, setRange] = useState(DEFAULT_PRACTICE_RANGE);
+  const [latencyEstimateMessage, setLatencyEstimateMessage] = useState<string | null>(null);
   const [seriesResetTime, setSeriesResetTime] = useState(0);
   const lane = useElementSize<HTMLDivElement>();
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -569,6 +622,13 @@ function PracticeOverlayImpl({
     setCurrentTime(getCurrentTime());
     return subscribe(setCurrentTime);
   }, [getCurrentTime, subscribe]);
+
+  useEffect(() => {
+    if (!isPlaying && viewMode === "follow") {
+      setReviewCenter(currentTime);
+      setViewMode("review");
+    }
+  }, [currentTime, isPlaying, viewMode]);
 
   useEffect(() => {
     const signature = segmentTimingSignature(segments);
@@ -599,6 +659,12 @@ function PracticeOverlayImpl({
     model.latestLiveCentsDifference,
     settings.pitchFeedback,
   );
+  const viewCenter =
+    viewMode === "follow" ? currentTime : clamp(reviewCenter, 0, Math.max(0, duration));
+  const viewport = useMemo(
+    () => buildViewport(viewCenter, viewWindowSec),
+    [viewCenter, viewWindowSec],
+  );
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -608,12 +674,22 @@ function PracticeOverlayImpl({
       lane.size,
       model,
       currentTime,
+      viewport,
       loop.activeLoop,
       feedbackLevel,
       debugEnabled,
       settings,
     );
-  }, [lane.size, model, currentTime, loop.activeLoop, feedbackLevel, debugEnabled, settings]);
+  }, [
+    lane.size,
+    model,
+    currentTime,
+    viewport,
+    loop.activeLoop,
+    feedbackLevel,
+    debugEnabled,
+    settings,
+  ]);
 
   const currentPhraseVisible =
     model.currentSegment != null &&
@@ -639,6 +715,35 @@ function PracticeOverlayImpl({
   const status = isPlaying ? "Live" : "Paused";
   const attempt = loop.lastAttemptScore == null ? "--" : `${loop.lastAttemptScore}%`;
   const canClear = loop.activeLoop != null || loop.manualStart != null || loop.manualEnd != null;
+  const attemptPointCount = series.times.length;
+  const reviewStart = Math.max(0, viewport.center - viewport.before);
+  const reviewEnd = Math.min(Math.max(0, duration), viewport.center + viewport.after);
+  const panReview = (deltaSec: number) => {
+    setViewMode("review");
+    setReviewCenter((prev) => clamp(prev + deltaSec, 0, Math.max(0, duration)));
+  };
+  const handleEstimateLatency = () => {
+    const estimate = estimateMicLatencyAdjustment(visibleSeries, model.expectedNotes);
+    if (!estimate) {
+      setLatencyEstimateMessage("Need clear sung onsets near chart notes to estimate latency.");
+      return;
+    }
+
+    onLiveTraceOffsetAdjustment(estimate.suggestedAdjustmentMs);
+    setLatencyEstimateMessage(
+      `Applied ${estimate.suggestedAdjustmentMs > 0 ? "+" : ""}${
+        estimate.suggestedAdjustmentMs
+      }ms live trace adjustment from ${estimate.sampleCount} onsets.`,
+    );
+  };
+  const setFollowMode = () => {
+    setReviewCenter(currentTime);
+    setViewMode("follow");
+  };
+  const setReviewMode = () => {
+    setReviewCenter(currentTime);
+    setViewMode("review");
+  };
   const latestLiveAge =
     model.latestLiveVoicePoint == null
       ? Number.POSITIVE_INFINITY
@@ -650,15 +755,15 @@ function PracticeOverlayImpl({
       : latestLiveAge <= 0.35 && model.latestLiveVoicePoint?.kind === "voiced"
         ? "Mic: pitch detected"
         : "Mic: no pitch";
-  const visibleLiveTracePoints = countLiveVoicePointsInWindow(model.rawLiveVoiceTrace, currentTime);
+  const visibleLiveTracePoints = countLiveVoicePointsInWindow(model.rawLiveVoiceTrace, viewport);
   const silenceTracePointsInWindow = countLiveVoicePointsInWindow(
     model.rawLiveVoiceTrace,
-    currentTime,
+    viewport,
     "silence",
   );
   const scoredTracePointsInWindow = countLiveVoicePointsInWindow(
     model.chartRelativeVoiceTrace,
-    currentTime,
+    viewport,
   );
   const latestVoicedPoint = latestVoicedLiveVoicePoint(model.rawLiveVoiceTrace);
 
@@ -727,6 +832,18 @@ function PracticeOverlayImpl({
               <XIcon className="size-5" />
               Clear {shortcutHint(keybindings, "loopClear")}
             </PracticeButton>
+            <PracticeButton onClick={onClearAttempt} disabled={attemptPointCount === 0}>
+              <XIcon className="size-5" />
+              Clear Attempt
+            </PracticeButton>
+            <PracticeButton onClick={onRestartAttempt}>
+              <RotateCcwIcon className="size-5" />
+              Restart Attempt
+            </PracticeButton>
+            <PracticeButton onClick={handleEstimateLatency} disabled={attemptPointCount < 2}>
+              <TimerIcon className="size-5" />
+              Estimate Latency
+            </PracticeButton>
           </div>
 
           <div className="flex flex-wrap items-center justify-end gap-2 text-white/80">
@@ -741,15 +858,98 @@ function PracticeOverlayImpl({
               {loopSummary(loop)}
             </p>
           </div>
+
+          <div className="flex flex-wrap items-center justify-end gap-2 text-white/80">
+            <PracticeButton onClick={setFollowMode}>
+              <TimerIcon className="size-5" />
+              Follow Live
+            </PracticeButton>
+            <PracticeButton onClick={setReviewMode}>
+              <TimerIcon className="size-5" />
+              Review Attempt
+            </PracticeButton>
+            <PracticeButton onClick={() => panReview(-10)} disabled={duration <= 0}>
+              -10s
+            </PracticeButton>
+            <PracticeButton onClick={() => panReview(10)} disabled={duration <= 0}>
+              +10s
+            </PracticeButton>
+            <button
+              type="button"
+              className="min-h-10 rounded-sm border border-white/20 bg-white/10 px-3 text-base font-semibold text-white transition-colors hover:bg-white/20"
+              onClick={() =>
+                setViewWindowSec((prev) =>
+                  clamp(prev / 1.35, MIN_VIEW_WINDOW_SEC, MAX_VIEW_WINDOW_SEC),
+                )
+              }
+            >
+              Zoom In
+            </button>
+            <button
+              type="button"
+              className="min-h-10 rounded-sm border border-white/20 bg-white/10 px-3 text-base font-semibold text-white transition-colors hover:bg-white/20"
+              onClick={() =>
+                setViewWindowSec((prev) =>
+                  clamp(prev * 1.35, MIN_VIEW_WINDOW_SEC, MAX_VIEW_WINDOW_SEC),
+                )
+              }
+            >
+              Zoom Out
+            </button>
+            <p className="min-h-10 rounded-sm border border-white/15 bg-black/45 px-3 pt-2 text-base text-white/70">
+              {viewMode === "follow" ? "Follow" : "Review"} {formatPlaybackTime(reviewStart)} to{" "}
+              {formatPlaybackTime(reviewEnd)} • {attemptPointCount} points
+            </p>
+          </div>
+          {latencyEstimateMessage && (
+            <p className="max-w-[42rem] text-right text-base font-semibold text-white/74">
+              {latencyEstimateMessage} USDX GAP/BPM was not changed.
+            </p>
+          )}
         </div>
       </div>
 
       <div
         ref={lane.ref}
         className="mt-6 min-h-0 flex-1 overflow-hidden rounded-sm border border-white/18 bg-black/50 shadow-2xl shadow-black/40"
+        onWheel={(event) => {
+          if (viewMode !== "review") {
+            setViewMode("review");
+            setReviewCenter(currentTime);
+          }
+          if (event.ctrlKey || event.metaKey) {
+            setViewWindowSec((prev) =>
+              clamp(
+                prev * (event.deltaY > 0 ? 1.12 : 0.88),
+                MIN_VIEW_WINDOW_SEC,
+                MAX_VIEW_WINDOW_SEC,
+              ),
+            );
+          } else {
+            panReview(event.deltaY > 0 ? 2 : -2);
+          }
+        }}
       >
         <canvas ref={canvasRef} className="block" />
       </div>
+      {viewMode === "review" && duration > 0 && (
+        <div className="pointer-events-auto mt-3 flex shrink-0 items-center gap-3">
+          <span className="text-sm tracking-[0.14em] text-white/45 uppercase">Review</span>
+          <input
+            className="h-3 flex-1 accent-white"
+            type="range"
+            min={0}
+            max={duration}
+            step={0.05}
+            value={viewCenter}
+            onChange={(event) => setReviewCenter(Number(event.currentTarget.value))}
+            aria-label="Review attempt timeline"
+          />
+          <span className="w-24 text-right text-base tabular-nums text-white/70">
+            {formatPlaybackTime(viewCenter)}
+          </span>
+        </div>
+      )}
 
       <div className="mt-5 shrink-0">
         <p className="line-clamp-2 text-center text-5xl leading-tight font-semibold text-white drop-shadow">
@@ -768,6 +968,9 @@ function PracticeOverlayImpl({
           )}
           {model.expectedSource === "chart" && model.pitchCalibration.midiOffset == null && (
             <span>Chart pitch is relative until guide-vocal pitch lock is available</span>
+          )}
+          {timingDiagnostics.warning && (
+            <span className="font-semibold text-yellow-300">{timingDiagnostics.warning}</span>
           )}
         </div>
       </div>
@@ -889,6 +1092,19 @@ function PracticeOverlayImpl({
           </div>
           <div>
             mic active capture={String(micCaptureActive)} pitch={String(micPitchActive)}
+          </div>
+          <div>
+            monitor enabled={String(monitorStatus?.monitor_enabled ?? false)} queue{" "}
+            {monitorStatus == null
+              ? "--"
+              : `${monitorStatus.monitor_queue_samples} samples / ${Math.round(
+                  monitorStatus.monitor_queue_latency_ms,
+                )}ms`}
+          </div>
+          <div>
+            monitor input {monitorStatus?.input_device_name ?? "--"} output{" "}
+            {monitorStatus?.output_device_name ?? "--"} buffers{" "}
+            {monitorStatus?.input_buffer_size ?? "--"} / {monitorStatus?.output_buffer_size ?? "--"}
           </div>
           <div>
             live stored display{" "}

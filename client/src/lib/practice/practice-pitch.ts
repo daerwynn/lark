@@ -99,6 +99,12 @@ export interface BuildPracticeLaneArgs {
   lyricLeadSec?: number;
 }
 
+export interface MicLatencyAdjustmentEstimate {
+  observedOffsetMs: number;
+  suggestedAdjustmentMs: number;
+  sampleCount: number;
+}
+
 const DEFAULT_MISSING_CHART_DATA: PracticeMissingChartData = {
   absoluteNoteHz: true,
   noteKinds: true,
@@ -835,6 +841,51 @@ function notesFromReferenceTrace(trace: PracticeTracePoint[]): PracticeExpectedN
     label: "",
     source: "reference",
   }));
+}
+
+export function estimateMicLatencyAdjustment(
+  series: PitchSeries,
+  expectedNotes: PracticeExpectedNote[],
+  maxDistanceSec: number = 0.45,
+): MicLatencyAdjustmentEstimate | null {
+  if (series.times.length === 0 || expectedNotes.length === 0) return null;
+
+  const offsets: number[] = [];
+  let wasVoiced = false;
+
+  for (let index = 0; index < series.times.length; index++) {
+    const time = series.times[index];
+    const kind = series.liveKind?.[index] ?? (series.rawMicVoiced?.[index] ? "voiced" : "silence");
+    const voiced = kind === "voiced";
+
+    if (voiced && !wasVoiced) {
+      let nearest: PracticeExpectedNote | null = null;
+      let nearestDistance = Number.POSITIVE_INFINITY;
+
+      for (const note of expectedNotes) {
+        const distance = Math.abs(time - note.start);
+        if (distance < nearestDistance) {
+          nearest = note;
+          nearestDistance = distance;
+        }
+      }
+
+      if (nearest && nearestDistance <= maxDistanceSec) {
+        offsets.push(time - nearest.start);
+      }
+    }
+
+    wasVoiced = voiced;
+  }
+
+  const observedOffsetSec = median(offsets);
+  if (observedOffsetSec == null) return null;
+
+  return {
+    observedOffsetMs: Math.round(observedOffsetSec * 1000),
+    suggestedAdjustmentMs: Math.round(-observedOffsetSec * 1000),
+    sampleCount: offsets.length,
+  };
 }
 
 export function buildPracticeLaneModel({

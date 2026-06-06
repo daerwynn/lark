@@ -28,6 +28,7 @@ import {
   DEFAULT_PITCH_ORANGE_CENTS,
   DEFAULT_PITCH_YELLOW_CENTS,
   DEFAULT_LIVE_TRACE_OFFSET_MS,
+  DEFAULT_MIC_LATENCY_MS,
   DEFAULT_USDX_LYRIC_DISPLAY_OFFSET_MS,
   MAX_LIVE_TRACE_OFFSET_MS,
   MAX_MIC_LATENCY_MS,
@@ -38,6 +39,7 @@ import {
   MIN_PITCH_THRESHOLD_CENTS,
   MIN_USDX_LYRIC_DISPLAY_OFFSET_MS,
   normalizeLiveTraceOffsetMs,
+  normalizeMicLatencyMs,
   normalizeUsdxLyricDisplayOffsetMs,
   normalizePitchFeedbackSettings,
   practiceSettingsFromConfig,
@@ -54,6 +56,8 @@ interface PlaybackSettingsPanelProps {
 function pct(value: number): string {
   return `${value} cents`;
 }
+
+const MIC_LATENCY_STEPS_MS = [-100, -50, -10, 10, 50, 100];
 
 export function PlaybackSettingsPanel({ config, open, onClose }: PlaybackSettingsPanelProps) {
   const { mutate } = useConfigMutation();
@@ -110,6 +114,10 @@ export function PlaybackSettingsPanel({ config, open, onClose }: PlaybackSetting
 
   const updateLiveTraceOffset = (value: number) => {
     mutate({ practice_live_trace_offset_ms: normalizeLiveTraceOffsetMs(value) });
+  };
+
+  const updateMicLatency = (value: number) => {
+    mutate({ practice_mic_latency_ms: normalizeMicLatencyMs(value) });
   };
 
   const toggleWindowMode = (fullscreen: boolean) => {
@@ -254,14 +262,44 @@ export function PlaybackSettingsPanel({ config, open, onClose }: PlaybackSetting
 
             <Field>
               <Label>Microphone latency</Label>
-              <FieldDescription>{settings.micLatencyMs}ms</FieldDescription>
-              <Slider
-                min={MIN_MIC_LATENCY_MS}
-                max={MAX_MIC_LATENCY_MS}
-                step={5}
-                value={[settings.micLatencyMs]}
-                onValueChange={([value]) => mutate({ practice_mic_latency_ms: value })}
-              />
+              <FieldDescription>
+                Visual/scoring latency for mic frames. This does not change USDX GAP/BPM.
+              </FieldDescription>
+              <div className="flex flex-wrap gap-2">
+                {MIC_LATENCY_STEPS_MS.map((step) => (
+                  <Button
+                    key={step}
+                    variant="outline"
+                    onClick={() => updateMicLatency(settings.micLatencyMs + step)}
+                  >
+                    {step > 0 ? "+" : ""}
+                    {step}ms
+                  </Button>
+                ))}
+                <Button variant="ghost" onClick={() => updateMicLatency(DEFAULT_MIC_LATENCY_MS)}>
+                  Reset
+                </Button>
+              </div>
+              <div className="flex items-center gap-3">
+                <Slider
+                  min={MIN_MIC_LATENCY_MS}
+                  max={MAX_MIC_LATENCY_MS}
+                  step={5}
+                  value={[settings.micLatencyMs]}
+                  onValueChange={([value]) => updateMicLatency(value)}
+                />
+                <Input
+                  className="w-28 bg-white/10 text-right text-white"
+                  type="number"
+                  min={MIN_MIC_LATENCY_MS}
+                  max={MAX_MIC_LATENCY_MS}
+                  step={5}
+                  value={settings.micLatencyMs}
+                  onChange={(event) => updateMicLatency(event.currentTarget.valueAsNumber)}
+                  aria-label="Microphone visual latency in milliseconds"
+                />
+                <span className="text-sm text-white/60">ms</span>
+              </div>
             </Field>
 
             <Field>
@@ -269,6 +307,24 @@ export function PlaybackSettingsPanel({ config, open, onClose }: PlaybackSetting
               <FieldDescription>
                 Positive values move the mic trace later; negative values move it earlier.
               </FieldDescription>
+              <div className="flex flex-wrap gap-2">
+                {MIC_LATENCY_STEPS_MS.map((step) => (
+                  <Button
+                    key={step}
+                    variant="outline"
+                    onClick={() => updateLiveTraceOffset(settings.liveTraceOffsetMs + step)}
+                  >
+                    {step > 0 ? "+" : ""}
+                    {step}ms
+                  </Button>
+                ))}
+                <Button
+                  variant="ghost"
+                  onClick={() => updateLiveTraceOffset(DEFAULT_LIVE_TRACE_OFFSET_MS)}
+                >
+                  Reset
+                </Button>
+              </div>
               <div className="flex items-center gap-3">
                 <Slider
                   min={MIN_LIVE_TRACE_OFFSET_MS}

@@ -9,6 +9,7 @@ import {
   computeChartPitchCalibration,
   computePhraseMatchQuality,
   computePitchCentsDifference,
+  estimateMicLatencyAdjustment,
   extractChartNotes,
   filterPitchSeriesSince,
   findPracticeSegmentIndex,
@@ -822,6 +823,28 @@ describe("practice pitch adapter", () => {
   it("computes expected-vs-mic cents differences", () => {
     expect(computePitchCentsDifference(12, 12.4)).toBe(40);
     expect(computePitchCentsDifference(null, 12.4)).toBeNull();
+  });
+
+  it("estimates mic latency adjustment from voiced onsets near chart notes", () => {
+    const estimate = estimateMicLatencyAdjustment(
+      {
+        times: [0.8, 1.12, 1.4, 2.0, 2.18, 2.5],
+        refPitches: [null, null, null, null, null, null],
+        userPitches: [null, null, null, null, null, null],
+        similarities: [0, 0, 0, 0, 0, 0],
+        liveKind: ["silence", "voiced", "voiced", "silence", "voiced", "voiced"],
+      },
+      [
+        { start: 1, end: 1.5, pitch: 5, label: "one", source: "chart" },
+        { start: 2, end: 2.5, pitch: 7, label: "two", source: "chart" },
+      ],
+    );
+
+    expect(estimate).toEqual({
+      observedOffsetMs: 150,
+      suggestedAdjustmentMs: -150,
+      sampleCount: 2,
+    });
   });
 
   it("filters pitch history after a local reset time", () => {

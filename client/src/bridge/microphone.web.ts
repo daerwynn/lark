@@ -1,4 +1,5 @@
 import type { MicCaptureOptions } from "@/types/MicCaptureOptions";
+import type { MicMonitorStatus } from "@/types/MicMonitorStatus";
 import type { MicrophoneInfo } from "@/types/MicrophoneInfo";
 import type { MicSampleFrame } from "@/types/MicSampleFrame";
 import { dispatchMicFrame, type MicrophoneAdapter, subscribeMicSamples } from "./microphone";
@@ -205,8 +206,27 @@ const stopCapture = async (): Promise<void> => {
   teardown();
 };
 
+const monitorStatus = async (): Promise<MicMonitorStatus> => {
+  const track = active?.stream.getAudioTracks()[0] ?? null;
+
+  return {
+    capture_active: active != null,
+    monitor_enabled: active?.emitAudio ?? false,
+    monitor_gain: liveMonitorGain,
+    monitor_queue_samples: 0,
+    monitor_queue_latency_ms: active?.context.outputLatency
+      ? active.context.outputLatency * 1000
+      : 0,
+    input_device_name: track?.label || null,
+    output_device_name: null,
+    input_buffer_size: "AudioWorklet",
+    output_buffer_size: null,
+  };
+};
+
 export const webMicrophoneAdapter: MicrophoneAdapter = {
   listDevices,
+  monitorStatus,
   startCapture,
   stopCapture,
   onSamples: async (cb) => subscribeMicSamples(cb),

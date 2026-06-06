@@ -34,6 +34,19 @@ describe("pitch state helpers", () => {
     expect(buffer.snapshot().traceBreaks).toEqual([false, true]);
   });
 
+  it("supports rolling and full-attempt history sizes", () => {
+    const rolling = new PitchStateBuffer(2);
+    const attempt = new PitchStateBuffer(Number.POSITIVE_INFINITY);
+
+    for (const time of [0.1, 0.2, 0.3]) {
+      rolling.tryPush(null, 220, 0, time);
+      attempt.tryPush(null, 220, 0, time);
+    }
+
+    expect(rolling.snapshot().times).toEqual([0.2, 0.3]);
+    expect(attempt.snapshot().times).toEqual([0.1, 0.2, 0.3]);
+  });
+
   it("stores raw mic fields separately from scoring pitch", () => {
     const buffer = new PitchStateBuffer();
 

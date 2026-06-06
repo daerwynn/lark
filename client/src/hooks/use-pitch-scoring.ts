@@ -17,7 +17,10 @@ import { LivePitchStabilizer } from "@/lib/pitch/stabilizer";
 import { applyPitchOffsetToFrame } from "@/lib/practice/vocal-calibration";
 import {
   computeGuideVocalChartOffset,
+  computeGuideVocalTimingDiagnostics,
+  isUsableGuideVocalTiming,
   isUsableGuideVocalCalibration,
+  type GuideVocalTimingDiagnostics,
 } from "@/lib/pitch/guide-vocal-calibration";
 import type { PitchLiveDisplayFrame } from "@/lib/pitch/state";
 import {
@@ -37,7 +40,7 @@ import {
   type PracticePitchCalibration,
 } from "@/lib/practice/practice-pitch";
 import type { Segment } from "@/types/Transcript";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 const BACKWARD_SEEK_RESET_SEC = 0.25;
 const CHART_EXPECTED_TOLERANCE_SEC = 0.12;
@@ -85,6 +88,8 @@ export interface PitchScoringDebug {
   userMicSampleCount: number;
   userMicLocked: boolean;
   liveKind: "voiced" | "silence" | null;
+  timingQuality: GuideVocalTimingDiagnostics["quality"];
+  timingWarning: string | null;
 }
 
 export interface PitchScoringSource {
@@ -133,6 +138,19 @@ const EMPTY_DEBUG: PitchScoringDebug = {
   userMicSampleCount: 0,
   userMicLocked: false,
   liveKind: null,
+  timingQuality: "unavailable",
+  timingWarning: null,
+};
+
+const EMPTY_TIMING_DIAGNOSTICS: GuideVocalTimingDiagnostics = {
+  sampleCount: 0,
+  medianOffsetSec: null,
+  earlyOffsetSec: null,
+  middleOffsetSec: null,
+  lateOffsetSec: null,
+  driftSec: null,
+  quality: "unavailable",
+  warning: null,
 };
 
 function hzToMidi(hz: number | null | undefined): number | null {
@@ -156,13 +174,17 @@ function emptyGuideCalibration(): PracticePitchCalibration {
   };
 }
 
-function guideOffsetArgs(calibration: PracticePitchCalibration): {
+function guideOffsetArgs(
+  calibration: PracticePitchCalibration,
+  timingDiagnostics: GuideVocalTimingDiagnostics,
+): {
   guideOffset: number | null;
   guideSampleCount: number;
   guideConfidence: number;
   guideQuality: PitchLiveDisplayFrame["guideVocalQuality"];
 } {
-  const usable = isUsableGuideVocalCalibration(calibration);
+  const usable =
+    isUsableGuideVocalCalibration(calibration) && isUsableGuideVocalTiming(timingDiagnostics);
 
   return {
     guideOffset: usable ? calibration.midiOffset : null,
@@ -194,6 +216,15 @@ function debugFromLiveDisplay(display: PitchLiveDisplayFrame) {
   };
 }
 
+function emptySeries(): PitchSeries {
+  return {
+    refPitches: [],
+    userPitches: [],
+    similarities: [],
+    times: [],
+  };
+}
+
 export function usePitchScoring(
   {
     isReady,
@@ -210,12 +241,14 @@ export function usePitchScoring(
   const refDetector = useRef(createPitchDetector());
   const scratchRef = useRef(new Float32Array(PITCH_WINDOW_SAMPLES));
   const bufferRef = useRef(new PitchStateBuffer());
+  const attemptBufferRef = useRef(new PitchStateBuffer(Number.POSITIVE_INFINITY));
   const stabilizerRef = useRef(new LivePitchStabilizer());
   const liveDisplayRef = useRef(new LiveDisplayMapper());
   const scoringRef = useRef(new PitchScoring(1));
   const micPitchFrameRef = useRef(micPitchFrame);
   const lastProcessedFrameIdRef = useRef<number | null>(null);
   const guideCalibrationRef = useRef<PracticePitchCalibration>(emptyGuideCalibration());
+  const timingDiagnosticsRef = useRef<GuideVocalTimingDiagnostics>(EMPTY_TIMING_DIAGNOSTICS);
   const singableRef = useRef<number | null>(null);
   const lastRunTimeRef = useRef(0);
   const chartNotes = useMemo(() => extractChartNotes(segments), [segments]);
@@ -226,31 +259,58 @@ export function usePitchScoring(
     similarities: [],
     times: [],
   });
+  const [attemptSeries, setAttemptSeries] = useState<PitchSeries>(emptySeries);
   const [score, setScore] = useState(0);
   const [debug, setDebug] = useState<PitchScoringDebug>(EMPTY_DEBUG);
+  const [timingDiagnostics, setTimingDiagnostics] =
+    useState<GuideVocalTimingDiagnostics>(EMPTY_TIMING_DIAGNOSTICS);
 
   micPitchFrameRef.current = micPitchFrame;
   chartNotesRef.current = chartNotes;
+
+  const resetPracticeAttempt = useCallback(() => {
+    bufferRef.current.reset();
+    attemptBufferRef.current.reset();
+    stabilizerRef.current.reset();
+    liveDisplayRef.current.reset();
+    lastProcessedFrameIdRef.current = null;
+    lastRunTimeRef.current = 0;
+    scoringRef.current = new PitchScoring(singableRef.current ?? duration);
+    setSeries(bufferRef.current.snapshot());
+    setAttemptSeries(attemptBufferRef.current.snapshot());
+    setScore(0);
+    setDebug(EMPTY_DEBUG);
+  }, [duration]);
 
   useEffect(() => {
     if (!isReady || duration <= 0) {
       return;
     }
     bufferRef.current.reset();
+    attemptBufferRef.current.reset();
     stabilizerRef.current.reset();
     liveDisplayRef.current.reset();
     lastProcessedFrameIdRef.current = null;
     lastRunTimeRef.current = 0;
 
     const vocals = getVocalsBuffer();
-    guideCalibrationRef.current = computeGuideVocalChartOffset(vocals, chartNotes);
+    const guideCalibration = computeGuideVocalChartOffset(vocals, chartNotes);
+    const nextTimingDiagnostics = computeGuideVocalTimingDiagnostics(
+      vocals,
+      chartNotes,
+      guideCalibration,
+    );
+    guideCalibrationRef.current = guideCalibration;
+    timingDiagnosticsRef.current = nextTimingDiagnostics;
     const singable = vocals ? computeSingableTime(vocals) : duration;
     singableRef.current = singable;
     scoringRef.current = new PitchScoring(singable);
 
     setSeries(bufferRef.current.snapshot());
+    setAttemptSeries(attemptBufferRef.current.snapshot());
     setScore(0);
     setDebug(EMPTY_DEBUG);
+    setTimingDiagnostics(nextTimingDiagnostics);
   }, [
     isReady,
     duration,
@@ -272,6 +332,7 @@ export function usePitchScoring(
         stabilizerRef.current.reset();
         liveDisplayRef.current.reset();
         lastProcessedFrameIdRef.current = null;
+        attemptBufferRef.current.markTraceBreak();
         setSeries(bufferRef.current.snapshot());
         setDebug(EMPTY_DEBUG);
       }
@@ -317,6 +378,8 @@ export function usePitchScoring(
           guideVocalSampleCount: guideCalibrationRef.current.sampleCount,
           guideVocalConfidence: guideCalibrationRef.current.confidence,
           guideVocalQuality: guideCalibrationRef.current.quality,
+          timingQuality: timingDiagnosticsRef.current.quality,
+          timingWarning: timingDiagnosticsRef.current.warning,
         });
         if (decision.dropReason !== "already-processed") {
           bufferRef.current.markTraceBreak();
@@ -351,7 +414,8 @@ export function usePitchScoring(
       const notes = chartNotesRef.current;
       const chartNote = expectedNoteAtTime(notes, micSongTime, CHART_EXPECTED_TOLERANCE_SEC);
       const guideCalibration = guideCalibrationRef.current;
-      const guideArgs = guideOffsetArgs(guideCalibration);
+      const activeTimingDiagnostics = timingDiagnosticsRef.current;
+      const guideArgs = guideOffsetArgs(guideCalibration, activeTimingDiagnostics);
       const fallbackStatus = liveDisplayRef.current.status();
       const activeDisplayOffset =
         guideArgs.guideOffset ??
@@ -379,7 +443,24 @@ export function usePitchScoring(
           },
           liveDisplay,
         );
+        attemptBufferRef.current.tryPush(
+          null,
+          null,
+          0,
+          micSongTime,
+          null,
+          frame.id,
+          {
+            hz: null,
+            midi: null,
+            clarity: frame.clarity,
+            rms: frame.rms,
+            voiced: false,
+          },
+          liveDisplay,
+        );
         setSeries(bufferRef.current.snapshot());
+        setAttemptSeries(attemptBufferRef.current.snapshot());
         setDebug({
           rawHz: rawMicHz,
           stabilizedHz: null,
@@ -398,6 +479,8 @@ export function usePitchScoring(
           scored: false,
           traceBreakInserted: false,
           dropReason: "unvoiced",
+          timingQuality: activeTimingDiagnostics.quality,
+          timingWarning: activeTimingDiagnostics.warning,
           ...debugFromLiveDisplay(liveDisplay),
         });
         return;
@@ -418,7 +501,9 @@ export function usePitchScoring(
         chartNote && activeDisplayOffset != null
           ? semitoneToFreq(chartNote.pitch + activeDisplayOffset)
           : null;
-      const comparisonHz = refHz ?? chartExpectedHz;
+      const chartTimingTrusted =
+        chartNote == null || isUsableGuideVocalTiming(activeTimingDiagnostics);
+      const comparisonHz = chartTimingTrusted ? (refHz ?? chartExpectedHz) : null;
       const hasExpectedPitch = comparisonHz != null || chartNote != null;
 
       if (!hasExpectedPitch) {
@@ -448,7 +533,24 @@ export function usePitchScoring(
           },
           liveDisplay,
         );
+        attemptBufferRef.current.tryPush(
+          null,
+          null,
+          0,
+          micSongTime,
+          rawMic?.hz ?? null,
+          frame.id,
+          {
+            hz: rawMicHz,
+            midi: rawMicMidi,
+            clarity: frame.clarity,
+            rms: frame.rms,
+            voiced: true,
+          },
+          liveDisplay,
+        );
         setSeries(bufferRef.current.snapshot());
+        setAttemptSeries(attemptBufferRef.current.snapshot());
         setDebug({
           rawHz: rawMicHz,
           stabilizedHz: null,
@@ -467,6 +569,8 @@ export function usePitchScoring(
           scored: false,
           traceBreakInserted: false,
           dropReason: "no-expected-pitch",
+          timingQuality: activeTimingDiagnostics.quality,
+          timingWarning: activeTimingDiagnostics.warning,
           ...debugFromLiveDisplay(liveDisplay),
         });
         return;
@@ -515,6 +619,7 @@ export function usePitchScoring(
 
       if (!displayed) {
         bufferRef.current.markTraceBreak();
+        attemptBufferRef.current.markTraceBreak();
       }
 
       bufferRef.current.tryPush(
@@ -533,8 +638,25 @@ export function usePitchScoring(
         },
         liveDisplay,
       );
+      attemptBufferRef.current.tryPush(
+        comparisonHz,
+        stabilizedMic,
+        sim,
+        micSongTime,
+        rawMic?.hz ?? null,
+        frame.id,
+        {
+          hz: rawMicHz,
+          midi: rawMicMidi,
+          clarity: frame.clarity,
+          rms: frame.rms,
+          voiced: true,
+        },
+        liveDisplay,
+      );
       scoringRef.current.accumulate(micSongTime, comparisonHz, stabilizedMic, sim);
       setSeries(bufferRef.current.snapshot());
+      setAttemptSeries(attemptBufferRef.current.snapshot());
       setScore(scoringRef.current.score());
       setDebug({
         rawHz: rawMicHz,
@@ -554,6 +676,8 @@ export function usePitchScoring(
         scored,
         traceBreakInserted: !displayed,
         dropReason,
+        timingQuality: activeTimingDiagnostics.quality,
+        timingWarning: activeTimingDiagnostics.warning,
         ...debugFromLiveDisplay(liveDisplay),
       });
     };
@@ -561,5 +685,5 @@ export function usePitchScoring(
     return subscribe(run);
   }, [isReady, subscribe, getVocalsBuffer, micLatencySec, liveTraceOffsetSec, micPitchOffsetCents]);
 
-  return { series, score, debug };
+  return { series, attemptSeries, score, debug, timingDiagnostics, resetPracticeAttempt };
 }

@@ -102,7 +102,8 @@ function PlaybackHudImpl({
   const { firstSegmentStart, lastSegmentEnd, introSkipLeadSec, transcriptSource } =
     usePlaybackTranscriptState();
   const { handleSkipIntro, handleSkipOutro } = usePlaybackTranscriptActions();
-  const { pitchScore, micUserEnabled, micName, micMonitorUserEnabled } = usePlaybackMicState();
+  const { pitchScore, micUserEnabled, micName, micMonitorUserEnabled, monitorStatus } =
+    usePlaybackMicState();
 
   const timerRef = useRef<HTMLParagraphElement>(null);
   const skipIntroRef = useRef<HTMLButtonElement>(null);
@@ -199,6 +200,20 @@ function PlaybackHudImpl({
           Monitor: {micMonitorUserEnabled ? "ON" : "OFF"}{" "}
           {shortcutHint(keybindings, "micMonitorToggle")}
         </HintText>
+        {micMonitorUserEnabled && (
+          <HintText>
+            Monitor latency:{" "}
+            {monitorStatus == null
+              ? "unknown"
+              : `${Math.round(monitorStatus.monitor_queue_latency_ms)}ms queue`}
+          </HintText>
+        )}
+        {micMonitorUserEnabled && (
+          <HintText>
+            Mic monitor may have audible latency depending on hardware/buffers. This is separate
+            from USDX timing.
+          </HintText>
+        )}
         <HintText>{formatThemeText(themeIndex, videoFlavor, keybindings)}</HintText>
         <HintText>{shortcutHint(keybindings, "pauseMenu")} Back</HintText>
       </div>

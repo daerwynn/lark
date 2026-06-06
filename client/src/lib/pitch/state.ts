@@ -154,6 +154,8 @@ export class PitchStateBuffer {
   private lastPushTime = 0;
   private pendingTraceBreak = false;
 
+  constructor(private readonly maxSize: number = PITCH_BUFFER_SIZE) {}
+
   tryPush(
     refPitch: number | null,
     userPitch: number | null,
@@ -178,7 +180,7 @@ export class PitchStateBuffer {
     }
     this.lastPushTime = time;
 
-    if (this.refPitches.length >= PITCH_BUFFER_SIZE) {
+    if (Number.isFinite(this.maxSize) && this.refPitches.length >= this.maxSize) {
       this.refPitches.shift();
       this.userPitches.shift();
       this.rawUserPitches.shift();

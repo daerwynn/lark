@@ -23,6 +23,7 @@ export const MIN_PITCH_THRESHOLD_CENTS = 1;
 export const MAX_PITCH_THRESHOLD_CENTS = 200;
 export const MIN_MIC_LATENCY_MS = 0;
 export const MAX_MIC_LATENCY_MS = 500;
+export const DEFAULT_MIC_LATENCY_MS = Math.round(MIC_LATENCY_COMPENSATION_SEC * 1000);
 export const DEFAULT_LIVE_TRACE_OFFSET_MS = 0;
 export const MIN_LIVE_TRACE_OFFSET_MS = -1000;
 export const MAX_LIVE_TRACE_OFFSET_MS = 1000;
@@ -64,7 +65,7 @@ export function normalizePitchFeedbackSettings(
 
 export function normalizeMicLatencyMs(value: number | null | undefined): number {
   return clamp(
-    Math.round(finiteOrDefault(value, MIC_LATENCY_COMPENSATION_SEC * 1000)),
+    Math.round(finiteOrDefault(value, DEFAULT_MIC_LATENCY_MS)),
     MIN_MIC_LATENCY_MS,
     MAX_MIC_LATENCY_MS,
   );

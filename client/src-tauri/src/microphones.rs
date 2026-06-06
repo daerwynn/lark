@@ -12,12 +12,14 @@ use ts_rs::TS;
 /// Worker drains the cpal queue in fixed-size chunks before forwarding to the
 /// JS side; smaller chunks lower IPC latency at the cost of more sends/sec.
 const SAMPLE_CHUNK: usize = 512;
-const AUDIO_QUEUE_CAP: usize = 24_000;
+const AUDIO_QUEUE_CAP: usize = 4_800;
 const PCM_QUEUE_CAP: usize = 24_000;
 const DEFAULT_MONITOR_GAIN: f32 = 0.65;
 const MAX_MONITOR_GAIN: f32 = 2.0;
 
 static MONITOR_GAIN_BITS: AtomicU32 = AtomicU32::new(DEFAULT_MONITOR_GAIN.to_bits());
+static MONITOR_QUEUE_SAMPLES: AtomicU32 = AtomicU32::new(0);
+static MONITOR_SAMPLE_RATE: AtomicU32 = AtomicU32::new(0);
 
 fn monitor_gain() -> f32 {
     f32::from_bits(MONITOR_GAIN_BITS.load(Ordering::Relaxed))
@@ -32,6 +34,20 @@ pub fn set_monitor_gain(gain: f32) {
 #[ts(export)]
 pub struct MicrophoneInfo {
     pub name: String,
+}
+
+#[derive(Debug, Clone, Serialize, TS)]
+#[ts(export)]
+pub struct MicMonitorStatus {
+    pub capture_active: bool,
+    pub monitor_enabled: bool,
+    pub monitor_gain: f32,
+    pub monitor_queue_samples: u32,
+    pub monitor_queue_latency_ms: f32,
+    pub input_device_name: Option<String>,
+    pub output_device_name: Option<String>,
+    pub input_buffer_size: Option<String>,
+    pub output_buffer_size: Option<String>,
 }
 
 /// Mono PCM frame streamed from Rust to JS. JS owns all DSP (pitch, reactive
@@ -155,16 +171,21 @@ static MIC_CHANNEL: once_cell::sync::Lazy<Arc<Mutex<Option<Channel<MicSampleFram
     once_cell::sync::Lazy::new(|| Arc::new(Mutex::new(None)));
 static MIC_THREAD: once_cell::sync::Lazy<Mutex<Option<JoinHandle<()>>>> =
     once_cell::sync::Lazy::new(|| Mutex::new(None));
+static INPUT_DEVICE_NAME: once_cell::sync::Lazy<Mutex<Option<String>>> =
+    once_cell::sync::Lazy::new(|| Mutex::new(None));
+static OUTPUT_DEVICE_NAME: once_cell::sync::Lazy<Mutex<Option<String>>> =
+    once_cell::sync::Lazy::new(|| Mutex::new(None));
+static INPUT_BUFFER_SIZE: once_cell::sync::Lazy<Mutex<Option<String>>> =
+    once_cell::sync::Lazy::new(|| Mutex::new(None));
+static OUTPUT_BUFFER_SIZE: once_cell::sync::Lazy<Mutex<Option<String>>> =
+    once_cell::sync::Lazy::new(|| Mutex::new(None));
 /// Serializes start/stop so concurrent IPC dispatches can't interleave a
 /// teardown with a fresh spawn.
 static MIC_OP_LOCK: once_cell::sync::Lazy<Mutex<()>> =
     once_cell::sync::Lazy::new(|| Mutex::new(()));
 
 fn take_mic_thread() -> Option<JoinHandle<()>> {
-    MIC_THREAD
-        .lock()
-        .unwrap_or_else(|p| p.into_inner())
-        .take()
+    MIC_THREAD.lock().unwrap_or_else(|p| p.into_inner()).take()
 }
 
 fn stop_internal() {
@@ -182,6 +203,20 @@ fn stop_internal() {
         let _ = handle.join();
     }
     MIC_RUNNING.store(false, Ordering::SeqCst);
+    MONITOR_QUEUE_SAMPLES.store(0, Ordering::Relaxed);
+    MONITOR_SAMPLE_RATE.store(0, Ordering::Relaxed);
+    if let Ok(mut value) = INPUT_DEVICE_NAME.lock() {
+        *value = None;
+    }
+    if let Ok(mut value) = OUTPUT_DEVICE_NAME.lock() {
+        *value = None;
+    }
+    if let Ok(mut value) = INPUT_BUFFER_SIZE.lock() {
+        *value = None;
+    }
+    if let Ok(mut value) = OUTPUT_BUFFER_SIZE.lock() {
+        *value = None;
+    }
 }
 
 fn find_device(preferred: Option<&str>) -> Result<(cpal::Device, String), String> {
@@ -290,6 +325,7 @@ fn try_build_stream(
                     while q.len() > AUDIO_QUEUE_CAP {
                         q.pop_front();
                     }
+                    MONITOR_QUEUE_SAMPLES.store(q.len() as u32, Ordering::Relaxed);
                 }
             }
         })
@@ -373,7 +409,9 @@ fn try_build_output_stream(
                 return 0.0;
             }
             if let Ok(mut q) = audio_shared.try_lock() {
-                q.pop_front().unwrap_or(0.0) * monitor_gain()
+                let sample = q.pop_front().unwrap_or(0.0) * monitor_gain();
+                MONITOR_QUEUE_SAMPLES.store(q.len() as u32, Ordering::Relaxed);
+                sample
             } else {
                 0.0
             }
@@ -481,6 +519,13 @@ fn run_mic_loop(device: cpal::Device, name: &str, shutdown: Arc<AtomicBool>) {
         buffer_size: cpal::BufferSize::Default,
     };
     let sr = config.sample_rate;
+    MONITOR_SAMPLE_RATE.store(sr, Ordering::Relaxed);
+    if let Ok(mut value) = INPUT_DEVICE_NAME.lock() {
+        *value = Some(name.to_string());
+    }
+    if let Ok(mut value) = INPUT_BUFFER_SIZE.lock() {
+        *value = Some(format!("{:?}", config.buffer_size));
+    }
 
     info!(
         "[mic] opening '{name}': {sr} Hz, {}ch, {sample_format:?}",
@@ -499,9 +544,26 @@ fn run_mic_loop(device: cpal::Device, name: &str, shutdown: Arc<AtomicBool>) {
         warn!("[mic] failed to open '{name}'");
         return;
     };
-    let monitor_stream = cpal::default_host()
-        .default_output_device()
-        .and_then(|output_device| try_build_output_stream(&output_device, Arc::clone(&audio_shared)));
+    let output_device = cpal::default_host().default_output_device();
+    if let Some(output_device) = output_device.as_ref() {
+        let output_name = device_display_name(output_device);
+        if let Ok(mut value) = OUTPUT_DEVICE_NAME.lock() {
+            *value = Some(output_name);
+        }
+        if let Ok(default_cfg) = output_device.default_output_config() {
+            let config = cpal::StreamConfig {
+                channels: default_cfg.channels(),
+                sample_rate: default_cfg.sample_rate(),
+                buffer_size: cpal::BufferSize::Default,
+            };
+            if let Ok(mut value) = OUTPUT_BUFFER_SIZE.lock() {
+                *value = Some(format!("{:?}", config.buffer_size));
+            }
+        }
+    }
+    let monitor_stream = output_device.and_then(|output_device| {
+        try_build_output_stream(&output_device, Arc::clone(&audio_shared))
+    });
     if monitor_stream.is_none() {
         warn!("[mic] no output monitoring stream available");
     }
@@ -536,4 +598,39 @@ fn run_mic_loop(device: cpal::Device, name: &str, shutdown: Arc<AtomicBool>) {
 pub fn stop_mic_capture() {
     let _guard = MIC_OP_LOCK.lock().unwrap_or_else(|p| p.into_inner());
     stop_internal();
+}
+
+#[tauri::command]
+pub fn mic_monitor_status() -> MicMonitorStatus {
+    let queue_samples = MONITOR_QUEUE_SAMPLES.load(Ordering::Relaxed);
+    let sample_rate = MONITOR_SAMPLE_RATE.load(Ordering::Relaxed);
+    let queue_latency_ms = if sample_rate > 0 {
+        queue_samples as f32 / sample_rate as f32 * 1000.0
+    } else {
+        0.0
+    };
+
+    MicMonitorStatus {
+        capture_active: MIC_RUNNING.load(Ordering::Relaxed),
+        monitor_enabled: MONITOR_ENABLED.load(Ordering::Relaxed),
+        monitor_gain: monitor_gain(),
+        monitor_queue_samples: queue_samples,
+        monitor_queue_latency_ms: queue_latency_ms,
+        input_device_name: INPUT_DEVICE_NAME
+            .lock()
+            .ok()
+            .and_then(|value| value.clone()),
+        output_device_name: OUTPUT_DEVICE_NAME
+            .lock()
+            .ok()
+            .and_then(|value| value.clone()),
+        input_buffer_size: INPUT_BUFFER_SIZE
+            .lock()
+            .ok()
+            .and_then(|value| value.clone()),
+        output_buffer_size: OUTPUT_BUFFER_SIZE
+            .lock()
+            .ok()
+            .and_then(|value| value.clone()),
+    }
 }

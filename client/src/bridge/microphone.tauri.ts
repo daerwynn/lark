@@ -1,4 +1,5 @@
 import type { MicCaptureOptions } from "@/types/MicCaptureOptions";
+import type { MicMonitorStatus } from "@/types/MicMonitorStatus";
 import type { MicrophoneInfo } from "@/types/MicrophoneInfo";
 import type { MicSampleFrame } from "@/types/MicSampleFrame";
 import { Channel, invoke } from "./runtime";
@@ -18,6 +19,9 @@ const enqueue = <T>(op: () => Promise<T>): Promise<T> => {
 };
 
 const listDevices = (): Promise<MicrophoneInfo[]> => invoke<MicrophoneInfo[]>("list_microphones");
+
+const monitorStatus = (): Promise<MicMonitorStatus> =>
+  invoke<MicMonitorStatus>("mic_monitor_status");
 
 const startCapture = (preferred: string | null, options: MicCaptureOptions): Promise<string> =>
   enqueue(async () => {
@@ -43,6 +47,7 @@ const stopCapture = (): Promise<void> =>
 
 export const tauriMicrophoneAdapter: MicrophoneAdapter = {
   listDevices,
+  monitorStatus,
   startCapture,
   stopCapture,
   onSamples: async (cb) => subscribeMicSamples(cb),

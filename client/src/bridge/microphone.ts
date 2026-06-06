@@ -1,4 +1,5 @@
 import type { MicCaptureOptions } from "@/types/MicCaptureOptions";
+import type { MicMonitorStatus } from "@/types/MicMonitorStatus";
 import type { MicrophoneInfo } from "@/types/MicrophoneInfo";
 import type { MicSampleFrame } from "@/types/MicSampleFrame";
 
@@ -9,6 +10,7 @@ export type StopListening = () => void;
 
 export interface MicrophoneAdapter {
   listDevices(): Promise<MicrophoneInfo[]>;
+  monitorStatus(): Promise<MicMonitorStatus>;
   startCapture(preferred: string | null, options: MicCaptureOptions): Promise<string>;
   stopCapture(): Promise<void>;
   onSamples(cb: MicSamplesCallback): Promise<StopListening>;
@@ -49,6 +51,8 @@ export const microphoneAdapter: MicrophoneAdapter = isTauri
   : webMicrophoneAdapter;
 
 export const listMicrophones = (): Promise<MicrophoneInfo[]> => microphoneAdapter.listDevices();
+
+export const micMonitorStatus = (): Promise<MicMonitorStatus> => microphoneAdapter.monitorStatus();
 
 export const startMicCapture = (
   preferred: string | null,

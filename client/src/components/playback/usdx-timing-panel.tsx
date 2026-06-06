@@ -9,6 +9,7 @@ import {
   usePlaybackTranscriptState,
   usePlaybackTransportActions,
 } from "@/contexts/playback";
+import type { GuideVocalTimingDiagnostics } from "@/lib/pitch/guide-vocal-calibration";
 import { formatPlaybackTime } from "@/lib/playback/transport-controls";
 import type { Segment } from "@/types/Transcript";
 import type { UsdxCalibrationAnchor } from "@/types/UsdxCalibrationAnchor";
@@ -22,6 +23,8 @@ interface UsdxTimingPanelProps {
   open: boolean;
   onClose: () => void;
   onSeekRelative?: (deltaSeconds: number) => void;
+  onTimingChanged?: () => void;
+  timingDiagnostics?: GuideVocalTimingDiagnostics | null;
 }
 
 type AnchorSlot = "early" | "late";
@@ -124,7 +127,14 @@ function ActionButton({
   );
 }
 
-export function UsdxTimingPanel({ fileHash, open, onClose, onSeekRelative }: UsdxTimingPanelProps) {
+export function UsdxTimingPanel({
+  fileHash,
+  open,
+  onClose,
+  onSeekRelative,
+  onTimingChanged,
+  timingDiagnostics,
+}: UsdxTimingPanelProps) {
   const { segments } = usePlaybackTranscriptState();
   const { reloadTranscript } = usePlaybackTranscriptActions();
   const { getCurrentTime, subscribe } = usePlaybackTransportActions();
@@ -215,15 +225,16 @@ export function UsdxTimingPanel({ fileHash, open, onClose, onSeekRelative }: Usd
         });
         setInfoAndInputs(next);
         await reloadTranscript();
+        onTimingChanged?.();
         setPreview(null);
-        setMessage("Applied USDX timing override.");
+        setMessage("Applied USDX timing override. Practice trace and score history were reset.");
       } catch (error) {
         setMessage(error instanceof Error ? error.message : String(error));
       } finally {
         setBusy(false);
       }
     },
-    [fileHash, reloadTranscript, setInfoAndInputs],
+    [fileHash, onTimingChanged, reloadTranscript, setInfoAndInputs],
   );
 
   const handleApplyManual = useCallback(() => {
@@ -238,16 +249,17 @@ export function UsdxTimingPanel({ fileHash, open, onClose, onSeekRelative }: Usd
       const next = await resetUsdxTimingOverride(fileHash);
       setInfoAndInputs(next);
       await reloadTranscript();
+      onTimingChanged?.();
       setEarlyAnchor(null);
       setLateAnchor(null);
       setPreview(null);
-      setMessage("Reset to original TXT timing.");
+      setMessage("Reset to original TXT timing. Practice trace and score history were reset.");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : String(error));
     } finally {
       setBusy(false);
     }
-  }, [fileHash, reloadTranscript, setInfoAndInputs]);
+  }, [fileHash, onTimingChanged, reloadTranscript, setInfoAndInputs]);
 
   const handleSelectActive = useCallback(() => {
     setSelectedIndex(Math.max(0, activeSegmentIndex(segments, getCurrentTime())));
@@ -328,6 +340,10 @@ export function UsdxTimingPanel({ fileHash, open, onClose, onSeekRelative }: Usd
             <Field label="Audio" value={info.audio_file_name} />
             <Field label="Parsed BPM" value={formatBpm(info.parsed_bpm)} />
             <Field label="Parsed GAP" value={formatMs(info.parsed_gap_ms)} />
+            <Field label="Effective BPM" value={formatBpm(info.effective_bpm)} />
+            <Field label="Effective GAP" value={formatMs(info.effective_gap_ms)} />
+            <Field label="Timing Override" value={info.has_override ? "Active" : "Inactive"} />
+            <Field label="Offset From TXT" value={formatMs(info.offset_ms)} />
             <Field label="Audio Duration" value={formatPanelTime(info.audio_duration_secs)} />
             <Field label="First Note" value={formatPanelTime(info.first_note_time_secs)} />
             <Field label="Last Note End" value={formatPanelTime(info.last_note_end_secs)} />
@@ -340,6 +356,51 @@ export function UsdxTimingPanel({ fileHash, open, onClose, onSeekRelative }: Usd
           the chart. Use offset when the whole song is equally early or late; use BPM/time-scale
           when the chart drifts over time.
         </div>
+        <div className="rounded-sm border border-yellow-300/35 bg-yellow-300/12 px-4 py-3 text-base leading-relaxed text-yellow-100">
+          Only change USDX GAP/BPM if the blue notes/lyrics are off from the song audio. Do not use
+          this to align the live mic trace. If the live mic trace is late/early, use mic
+          latency/live trace calibration.
+        </div>
+
+        {timingDiagnostics && (
+          <div className="space-y-2 rounded-sm border border-white/12 bg-white/6 px-4 py-3">
+            <div className="flex items-center justify-between gap-3">
+              <h3 className="text-xl font-semibold">Chart / Audio Timing Quality</h3>
+              <span
+                className={
+                  timingDiagnostics.quality === "poor"
+                    ? "font-semibold text-yellow-200"
+                    : "text-white/70"
+                }
+              >
+                {timingDiagnostics.quality}
+              </span>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <Field label="Guide Samples" value={String(timingDiagnostics.sampleCount)} />
+              <Field
+                label="Median Offset"
+                value={formatSignedSeconds(timingDiagnostics.medianOffsetSec)}
+              />
+              <Field
+                label="Early Offset"
+                value={formatSignedSeconds(timingDiagnostics.earlyOffsetSec)}
+              />
+              <Field
+                label="Middle Offset"
+                value={formatSignedSeconds(timingDiagnostics.middleOffsetSec)}
+              />
+              <Field
+                label="Late Offset"
+                value={formatSignedSeconds(timingDiagnostics.lateOffsetSec)}
+              />
+              <Field label="Drift" value={formatSignedSeconds(timingDiagnostics.driftSec)} />
+            </div>
+            {timingDiagnostics.warning && (
+              <p className="text-base font-semibold text-yellow-200">{timingDiagnostics.warning}</p>
+            )}
+          </div>
+        )}
 
         <section className="space-y-3">
           <div className="flex items-center justify-between gap-3">
@@ -406,7 +467,7 @@ export function UsdxTimingPanel({ fileHash, open, onClose, onSeekRelative }: Usd
               onClick={() => void handleReset()}
             >
               <RotateCcwIcon className="size-5" />
-              Reset TXT
+              Reset TXT Timing
             </button>
           </div>
         </section>

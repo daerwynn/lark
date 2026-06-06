@@ -9,7 +9,9 @@
 import { useMicCapture, useMicDevices, useMicPitch } from "@/hooks/use-mic-pitch";
 import { useMicReactive, type MicReactiveRef } from "@/hooks/use-mic-reactive";
 import { usePitchScoring, type PitchScoringDebug } from "@/hooks/use-pitch-scoring";
+import { micMonitorStatus } from "@/bridge/microphone";
 import { usePlaybackConfigPersist } from "@/hooks/playback/use-playback-config-persist";
+import type { GuideVocalTimingDiagnostics } from "@/lib/pitch/guide-vocal-calibration";
 import type { PitchSeries } from "@/lib/pitch/state";
 import { practiceSettingsFromConfig } from "@/lib/practice/practice-settings";
 import {
@@ -18,6 +20,7 @@ import {
 } from "@/lib/practice/vocal-calibration";
 import { useProfiles } from "@/queries/use-profiles";
 import type { AppConfig } from "@/types/AppConfig";
+import type { MicMonitorStatus } from "@/types/MicMonitorStatus";
 import {
   createContext,
   useCallback,
@@ -43,9 +46,12 @@ export interface PlaybackMicState {
   pitchScore: number | null;
   rawScore: number;
   series: PitchSeries;
+  attemptSeries: PitchSeries;
   micDebug: PitchScoringDebug;
+  timingDiagnostics: GuideVocalTimingDiagnostics;
   micCaptureActive: boolean;
   micPitchActive: boolean;
+  monitorStatus: MicMonitorStatus | null;
   micReady: boolean;
 }
 
@@ -54,6 +60,7 @@ export interface PlaybackMicActions {
   handleToggleMic: () => void;
   handleCycleMic: () => void;
   handleToggleMicMonitor: () => void;
+  handleClearPracticeAttempt: () => void;
 }
 
 const MicStateContext = createContext<PlaybackMicState | null>(null);
@@ -77,6 +84,7 @@ export function PlaybackMicProvider({ config, children }: PlaybackMicProviderPro
     config?.mic_monitoring ?? false,
   );
   const [selectedMicId, setSelectedMicId] = useState<string | null>(config?.preferred_mic ?? null);
+  const [monitorStatus, setMonitorStatus] = useState<MicMonitorStatus | null>(null);
 
   const micDevices = useMicDevices();
 
@@ -113,8 +121,11 @@ export function PlaybackMicProvider({ config, children }: PlaybackMicProviderPro
 
   const {
     series,
+    attemptSeries,
     score,
     debug: micDebug,
+    timingDiagnostics,
+    resetPracticeAttempt,
   } = usePitchScoring(
     {
       isReady,
@@ -130,6 +141,32 @@ export function PlaybackMicProvider({ config, children }: PlaybackMicProviderPro
   );
 
   const micErrorShown = useRef(false);
+  useEffect(() => {
+    if (!captureEnabled && !micMonitorUserEnabled) {
+      setMonitorStatus(null);
+      return;
+    }
+
+    let cancelled = false;
+    const update = () => {
+      void micMonitorStatus()
+        .then((status) => {
+          if (!cancelled) setMonitorStatus(status);
+        })
+        .catch(() => {
+          if (!cancelled) setMonitorStatus(null);
+        });
+    };
+
+    update();
+    const id = window.setInterval(update, 500);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, [captureEnabled, micMonitorUserEnabled]);
+
   useEffect(() => {
     const micError = micCaptureError ?? micPitchError;
     if (micError && !micErrorShown.current) {
@@ -185,9 +222,12 @@ export function PlaybackMicProvider({ config, children }: PlaybackMicProviderPro
       pitchScore: micReady ? score : null,
       rawScore: score,
       series,
+      attemptSeries,
       micDebug,
+      timingDiagnostics,
       micCaptureActive,
       micPitchActive,
+      monitorStatus,
       micReady,
     };
   }, [
@@ -197,9 +237,12 @@ export function PlaybackMicProvider({ config, children }: PlaybackMicProviderPro
     activeMicDeviceName,
     score,
     series,
+    attemptSeries,
     micDebug,
+    timingDiagnostics,
     micCaptureActive,
     micPitchActive,
+    monitorStatus,
   ]);
 
   const actionsValue = useMemo<PlaybackMicActions>(
@@ -208,8 +251,9 @@ export function PlaybackMicProvider({ config, children }: PlaybackMicProviderPro
       handleToggleMic,
       handleCycleMic,
       handleToggleMicMonitor,
+      handleClearPracticeAttempt: resetPracticeAttempt,
     }),
-    [reactiveRef, handleToggleMic, handleCycleMic, handleToggleMicMonitor],
+    [reactiveRef, handleToggleMic, handleCycleMic, handleToggleMicMonitor, resetPracticeAttempt],
   );
 
   return (

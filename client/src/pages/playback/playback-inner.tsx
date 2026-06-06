@@ -19,6 +19,7 @@ import { UsdxTimingPanel } from "@/components/playback/usdx-timing-panel";
 import {
   PlaybackProviders,
   usePlaybackMicState,
+  usePlaybackMicActions,
   usePlaybackTranscriptState,
   usePlaybackTransportActions,
   usePlaybackTransportState,
@@ -37,7 +38,10 @@ import {
   skipPlaybackTime,
   stopPlaybackTarget,
 } from "@/lib/playback/transport-controls";
-import { practiceSettingsFromConfig } from "@/lib/practice/practice-settings";
+import {
+  normalizeLiveTraceOffsetMs,
+  practiceSettingsFromConfig,
+} from "@/lib/practice/practice-settings";
 import type { AppConfig } from "@/types/AppConfig";
 import type { Song } from "@/types/Song";
 import { useCallback, useMemo, useState } from "react";
@@ -65,7 +69,16 @@ function PlaybackLayout({ song, config }: PlaybackLayoutProps) {
     togglePlayback,
   } = usePlaybackTransportActions();
   const { segments } = usePlaybackTranscriptState();
-  const { series, micDebug, micCaptureActive, micPitchActive } = usePlaybackMicState();
+  const {
+    series,
+    attemptSeries,
+    micDebug,
+    timingDiagnostics,
+    micCaptureActive,
+    micPitchActive,
+    monitorStatus,
+  } = usePlaybackMicState();
+  const { handleClearPracticeAttempt } = usePlaybackMicActions();
   const [practiceMode, setPracticeMode] = useState(false);
   const [usdxTimingOpen, setUsdxTimingOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -149,6 +162,22 @@ function PlaybackLayout({ song, config }: PlaybackLayoutProps) {
     handleSeekRequested(0);
   }, [handleSeekRequested]);
 
+  const handleRestartPracticeAttempt = useCallback(() => {
+    handleClearPracticeAttempt();
+    handleSeekRequested(0);
+  }, [handleClearPracticeAttempt, handleSeekRequested]);
+
+  const handleLiveTraceOffsetAdjustment = useCallback(
+    (deltaMs: number) => {
+      persistConfig({
+        practice_live_trace_offset_ms: normalizeLiveTraceOffsetMs(
+          practiceSettings.liveTraceOffsetMs + deltaMs,
+        ),
+      });
+    },
+    [persistConfig, practiceSettings.liveTraceOffsetMs],
+  );
+
   const handleStopRequested = useCallback(() => {
     stopAt(stopPlaybackTarget(activeLoop, duration));
   }, [activeLoop, duration, stopAt]);
@@ -187,15 +216,21 @@ function PlaybackLayout({ song, config }: PlaybackLayoutProps) {
           {practiceMode ? (
             <PracticeOverlay
               segments={segments}
-              series={series}
+              series={attemptSeries}
               micDebug={micDebug}
+              timingDiagnostics={timingDiagnostics}
               micCaptureActive={micCaptureActive}
               micPitchActive={micPitchActive}
+              monitorStatus={monitorStatus}
               loop={practiceLoop}
               settings={practiceSettings}
               keybindings={keybindings}
               lyricDisplayOffsetSec={lyricDisplayTiming?.displayOffsetSec}
               lyricLeadSec={lyricDisplayTiming?.leadSec}
+              duration={duration}
+              onClearAttempt={handleClearPracticeAttempt}
+              onRestartAttempt={handleRestartPracticeAttempt}
+              onLiveTraceOffsetAdjustment={handleLiveTraceOffsetAdjustment}
             />
           ) : (
             <>
@@ -209,6 +244,8 @@ function PlaybackLayout({ song, config }: PlaybackLayoutProps) {
               open={usdxTimingOpen}
               onClose={handleCloseUsdxTiming}
               onSeekRelative={handleSkipRequested}
+              onTimingChanged={handleClearPracticeAttempt}
+              timingDiagnostics={timingDiagnostics}
             />
           )}
           <PlaybackSettingsPanel
