@@ -23,16 +23,20 @@ import {
   buildPracticeLaneModel,
   DEFAULT_PRACTICE_RANGE,
   estimateMicLatencyAdjustment,
-  filterPitchSeriesSince,
+  followPracticePlayback,
   isPracticeSegmentDisplayVisible,
   MAX_PRACTICE_RANGE,
   MIN_PRACTICE_RANGE,
+  panPracticeReview,
   practicePitchToY,
+  practiceReviewStateForPlayback,
+  reviewPracticeAttempt,
   PRACTICE_LANE_PADDING_Y,
   PRACTICE_WINDOW_AFTER,
   PRACTICE_WINDOW_BEFORE,
   shouldConnectTracePoints,
   type PracticeLaneModel,
+  type PracticeReviewState,
   type PracticeTracePoint,
 } from "@/lib/practice/practice-pitch";
 import type { Segment } from "@/types/Transcript";
@@ -64,6 +68,7 @@ interface PracticeOverlayProps {
   onClearAttempt: () => void;
   onRestartAttempt: () => void;
   onLiveTraceOffsetAdjustment: (deltaMs: number) => void;
+  onSummaryChange?: (summary: PracticeHudSummary | null) => void;
 }
 
 interface Size {
@@ -77,7 +82,16 @@ interface PracticeViewport {
   after: number;
 }
 
-type PracticeViewMode = "follow" | "review";
+export interface PracticeHudSummary {
+  match: string;
+  status: string;
+  attempt: string;
+  micStatus: string;
+  expected: string;
+  guideStatus: string;
+  timingWarning: string | null;
+  loop: string;
+}
 
 const GRID_LINES = 7;
 const LANE_PADDING_X = 20;
@@ -483,15 +497,12 @@ function drawLane(
   drawLatestLiveVoiceMarker(ctx, size, model, viewport, settings);
 }
 
-function SourceLabel({ source }: { source: PracticeLaneModel["expectedSource"] }) {
-  const label =
-    source === "chart"
-      ? "Expected: chart notes"
-      : source === "reference"
-        ? "Expected: vocal reference"
-        : "Expected: waiting";
-
-  return <span>{label}</span>;
+function expectedSourceText(source: PracticeLaneModel["expectedSource"]): string {
+  return source === "chart"
+    ? "Expected: chart notes"
+    : source === "reference"
+      ? "Expected: vocal reference"
+      : "Expected: waiting";
 }
 
 function practiceDebugEnabled(): boolean {
@@ -529,15 +540,6 @@ function latestVoicedLiveVoicePoint(points: LiveVoiceTracePoint[]): LiveVoiceTra
   return null;
 }
 
-function segmentTimingSignature(segments: Segment[]): string {
-  return segments
-    .map((segment) => {
-      const firstBeat = segment.words.find((word) => Number.isFinite(word.beat))?.beat ?? "";
-      return `${segment.start}:${segment.end}:${segment.words.length}:${firstBeat}`;
-    })
-    .join("|");
-}
-
 function PracticeButton({
   children,
   onClick,
@@ -550,7 +552,7 @@ function PracticeButton({
   return (
     <button
       type="button"
-      className="flex min-h-11 items-center gap-2 rounded-sm border border-white/20 bg-white/10 px-3 text-base font-medium text-white transition-colors hover:bg-white/20 disabled:opacity-40"
+      className="flex min-h-8 items-center gap-1.5 rounded-sm border border-white/20 bg-white/10 px-2.5 text-xs font-semibold text-white transition-colors hover:bg-white/20 disabled:opacity-40"
       disabled={disabled}
       onClick={onClick}
     >
@@ -573,7 +575,7 @@ function CountInButton({
   return (
     <button
       type="button"
-      className={`min-h-10 min-w-12 rounded-sm border px-3 text-base font-semibold tabular-nums transition-colors ${
+      className={`min-h-8 min-w-10 rounded-sm border px-2 text-xs font-semibold tabular-nums transition-colors ${
         active
           ? "border-white/70 bg-white text-black"
           : "border-white/20 bg-white/10 text-white hover:bg-white/20"
@@ -583,6 +585,17 @@ function CountInButton({
     >
       {value}s
     </button>
+  );
+}
+
+function PracticeControlGroup({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="flex min-h-10 flex-wrap items-center gap-1.5 rounded-sm border border-white/15 bg-black/48 px-2 py-1">
+      <span className="px-1 text-[0.65rem] font-semibold tracking-[0.14em] text-white/50 uppercase">
+        {label}
+      </span>
+      {children}
+    </div>
   );
 }
 
@@ -603,19 +616,19 @@ function PracticeOverlayImpl({
   onClearAttempt,
   onRestartAttempt,
   onLiveTraceOffsetAdjustment,
+  onSummaryChange,
 }: PracticeOverlayProps) {
   const { isPlaying } = usePlaybackTransportState();
   const { getCurrentTime, subscribe } = usePlaybackTransportActions();
   const [currentTime, setCurrentTime] = useState(() => getCurrentTime());
-  const [viewMode, setViewMode] = useState<PracticeViewMode>("follow");
-  const [reviewCenter, setReviewCenter] = useState(() => getCurrentTime());
+  const [reviewState, setReviewState] = useState<PracticeReviewState>(() =>
+    followPracticePlayback(getCurrentTime(), duration),
+  );
   const [viewWindowSec, setViewWindowSec] = useState(DEFAULT_VIEW_WINDOW_SEC);
   const [range, setRange] = useState(DEFAULT_PRACTICE_RANGE);
   const [latencyEstimateMessage, setLatencyEstimateMessage] = useState<string | null>(null);
-  const [seriesResetTime, setSeriesResetTime] = useState(0);
   const lane = useElementSize<HTMLDivElement>();
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const segmentSignatureRef = useRef<string | null>(null);
   const debugEnabled = useMemo(() => practiceDebugEnabled(), []);
 
   useEffect(() => {
@@ -624,43 +637,30 @@ function PracticeOverlayImpl({
   }, [getCurrentTime, subscribe]);
 
   useEffect(() => {
-    if (!isPlaying && viewMode === "follow") {
-      setReviewCenter(currentTime);
-      setViewMode("review");
-    }
-  }, [currentTime, isPlaying, viewMode]);
-
-  useEffect(() => {
-    const signature = segmentTimingSignature(segments);
-    if (segmentSignatureRef.current != null && segmentSignatureRef.current !== signature) {
-      setSeriesResetTime(getCurrentTime());
-    }
-    segmentSignatureRef.current = signature;
-  }, [getCurrentTime, segments]);
-
-  const visibleSeries = useMemo(
-    () => filterPitchSeriesSince(series, seriesResetTime),
-    [series, seriesResetTime],
-  );
+    setReviewState((prev) =>
+      practiceReviewStateForPlayback(prev, isPlaying, currentTime, duration),
+    );
+  }, [currentTime, duration, isPlaying]);
 
   const model = useMemo(
     () =>
       buildPracticeLaneModel({
         segments,
-        series: visibleSeries,
+        series,
         currentTime,
         semitoneRange: range,
         lyricDisplayOffsetSec,
         lyricLeadSec,
       }),
-    [segments, visibleSeries, currentTime, range, lyricDisplayOffsetSec, lyricLeadSec],
+    [segments, series, currentTime, range, lyricDisplayOffsetSec, lyricLeadSec],
   );
   const feedbackLevel = pitchFeedbackLevelFromCents(
     model.latestLiveCentsDifference,
     settings.pitchFeedback,
   );
+  const viewMode = reviewState.mode;
   const viewCenter =
-    viewMode === "follow" ? currentTime : clamp(reviewCenter, 0, Math.max(0, duration));
+    viewMode === "follow" ? currentTime : clamp(reviewState.center, 0, Math.max(0, duration));
   const viewport = useMemo(
     () => buildViewport(viewCenter, viewWindowSec),
     [viewCenter, viewWindowSec],
@@ -715,15 +715,24 @@ function PracticeOverlayImpl({
   const status = isPlaying ? "Live" : "Paused";
   const attempt = loop.lastAttemptScore == null ? "--" : `${loop.lastAttemptScore}%`;
   const canClear = loop.activeLoop != null || loop.manualStart != null || loop.manualEnd != null;
+  const loopText = loopSummary(loop);
   const attemptPointCount = series.times.length;
   const reviewStart = Math.max(0, viewport.center - viewport.before);
   const reviewEnd = Math.min(Math.max(0, duration), viewport.center + viewport.after);
   const panReview = (deltaSec: number) => {
-    setViewMode("review");
-    setReviewCenter((prev) => clamp(prev + deltaSec, 0, Math.max(0, duration)));
+    setReviewState((prev) =>
+      panPracticeReview(
+        {
+          mode: "review",
+          center: prev.mode === "follow" ? currentTime : prev.center,
+        },
+        deltaSec,
+        duration,
+      ),
+    );
   };
   const handleEstimateLatency = () => {
-    const estimate = estimateMicLatencyAdjustment(visibleSeries, model.expectedNotes);
+    const estimate = estimateMicLatencyAdjustment(series, model.expectedNotes);
     if (!estimate) {
       setLatencyEstimateMessage("Need clear sung onsets near chart notes to estimate latency.");
       return;
@@ -737,12 +746,10 @@ function PracticeOverlayImpl({
     );
   };
   const setFollowMode = () => {
-    setReviewCenter(currentTime);
-    setViewMode("follow");
+    setReviewState(followPracticePlayback(currentTime, duration));
   };
   const setReviewMode = () => {
-    setReviewCenter(currentTime);
-    setViewMode("review");
+    setReviewState(reviewPracticeAttempt(currentTime, duration));
   };
   const latestLiveAge =
     model.latestLiveVoicePoint == null
@@ -755,6 +762,12 @@ function PracticeOverlayImpl({
       : latestLiveAge <= 0.35 && model.latestLiveVoicePoint?.kind === "voiced"
         ? "Mic: pitch detected"
         : "Mic: no pitch";
+  const guideStatus =
+    model.expectedSource === "chart" && model.pitchCalibration.midiOffset != null
+      ? "Pitch lock: guide vocal"
+      : model.expectedSource === "chart"
+        ? "Chart pitch: relative"
+        : expectedSourceText(model.expectedSource);
   const visibleLiveTracePoints = countLiveVoicePointsInWindow(model.rawLiveVoiceTrace, viewport);
   const silenceTracePointsInWindow = countLiveVoicePointsInWindow(
     model.rawLiveVoiceTrace,
@@ -767,157 +780,120 @@ function PracticeOverlayImpl({
   );
   const latestVoicedPoint = latestVoicedLiveVoicePoint(model.rawLiveVoiceTrace);
 
+  useEffect(() => {
+    onSummaryChange?.({
+      match,
+      status,
+      attempt,
+      micStatus,
+      expected: expectedSourceText(model.expectedSource),
+      guideStatus,
+      timingWarning: timingDiagnostics.warning ?? null,
+      loop: loopText,
+    });
+  }, [
+    attempt,
+    guideStatus,
+    loopText,
+    match,
+    micStatus,
+    model.expectedSource,
+    onSummaryChange,
+    status,
+    timingDiagnostics.warning,
+  ]);
+
+  useEffect(() => {
+    return () => onSummaryChange?.(null);
+  }, [onSummaryChange]);
+
   return (
-    <div className="pointer-events-none absolute inset-0 z-10 flex flex-col bg-black/62 px-8 pt-24 pb-40 text-white">
-      <div className="flex shrink-0 items-start justify-between gap-5">
-        <div>
-          <p className="text-sm tracking-[0.18em] text-white/55 uppercase">Practice Mode</p>
-          <div className="mt-1 flex items-baseline gap-4">
-            <p className="text-6xl font-semibold tabular-nums">{match}</p>
-            <p className="text-2xl text-white/70">match</p>
-            <p className="rounded-sm border border-white/25 px-2 py-1 text-base text-white/70">
-              {status}
-            </p>
-          </div>
-        </div>
+    <div className="pointer-events-none absolute inset-0 z-10 flex flex-col bg-black/62 px-6 pt-24 pb-32 text-white">
+      <div className="pointer-events-auto ml-auto flex max-w-[min(78vw,78rem)] shrink-0 flex-wrap items-start justify-end gap-2">
+        <PracticeControlGroup label="Loop">
+          <PracticeButton onClick={loop.handleLoopCurrentPhrase}>
+            <RepeatIcon className="size-4" />
+            Phrase
+          </PracticeButton>
+          <PracticeButton onClick={loop.handleSetLoopStart}>
+            <FlagIcon className="size-4" />
+            Start {shortcutHint(keybindings, "loopStart")}
+          </PracticeButton>
+          <PracticeButton onClick={loop.handleSetLoopEnd}>
+            <FlagIcon className="size-4" />
+            End {shortcutHint(keybindings, "loopEnd")}
+          </PracticeButton>
+          <PracticeButton onClick={loop.handleRetryLoop} disabled={!loop.activeLoop}>
+            <RotateCcwIcon className="size-4" />
+            Retry {shortcutHint(keybindings, "loopRetry")}
+          </PracticeButton>
+          <PracticeButton onClick={loop.handleClearLoop} disabled={!canClear}>
+            <XIcon className="size-4" />
+            Clear {shortcutHint(keybindings, "loopClear")}
+          </PracticeButton>
+        </PracticeControlGroup>
 
-        <div className="pointer-events-auto flex max-w-[68%] flex-col items-end gap-3">
-          <div className="flex flex-wrap justify-end gap-3">
-            <div className="rounded-sm border border-white/15 bg-black/45 px-4 py-2 text-right">
-              <p className="text-sm tracking-[0.16em] text-white/55 uppercase">Last Loop</p>
-              <p className="text-4xl leading-none font-semibold tabular-nums">{attempt}</p>
-            </div>
+        <PracticeControlGroup label="Attempt">
+          <span className="px-1 text-sm font-semibold tabular-nums text-white/78">{attempt}</span>
+          <PracticeButton onClick={onClearAttempt} disabled={attemptPointCount === 0}>
+            <XIcon className="size-4" />
+            Clear
+          </PracticeButton>
+          <PracticeButton onClick={onRestartAttempt}>
+            <RotateCcwIcon className="size-4" />
+            Restart
+          </PracticeButton>
+        </PracticeControlGroup>
 
-            <div className="flex items-center gap-2 rounded-sm border border-white/15 bg-black/45 p-2">
-              <button
-                type="button"
-                className="flex size-11 items-center justify-center rounded-sm border border-white/20 bg-white/10 text-white transition-colors hover:bg-white/20 disabled:opacity-40"
-                disabled={range <= MIN_PRACTICE_RANGE}
-                aria-label="Decrease pitch range"
-                onClick={() => setRange((prev) => Math.max(MIN_PRACTICE_RANGE, prev - 6))}
-              >
-                <MinusIcon className="size-6" />
-              </button>
-              <p className="w-24 text-center text-xl font-medium tabular-nums">{range} st</p>
-              <button
-                type="button"
-                className="flex size-11 items-center justify-center rounded-sm border border-white/20 bg-white/10 text-white transition-colors hover:bg-white/20 disabled:opacity-40"
-                disabled={range >= MAX_PRACTICE_RANGE}
-                aria-label="Increase pitch range"
-                onClick={() => setRange((prev) => Math.min(MAX_PRACTICE_RANGE, prev + 6))}
-              >
-                <PlusIcon className="size-6" />
-              </button>
-            </div>
-          </div>
+        <PracticeControlGroup label="Range">
+          <button
+            type="button"
+            className="flex size-8 items-center justify-center rounded-sm border border-white/20 bg-white/10 text-white transition-colors hover:bg-white/20 disabled:opacity-40"
+            disabled={range <= MIN_PRACTICE_RANGE}
+            aria-label="Decrease pitch range"
+            onClick={() => setRange((prev) => Math.max(MIN_PRACTICE_RANGE, prev - 6))}
+          >
+            <MinusIcon className="size-4" />
+          </button>
+          <p className="w-14 text-center text-sm font-semibold tabular-nums">{range} st</p>
+          <button
+            type="button"
+            className="flex size-8 items-center justify-center rounded-sm border border-white/20 bg-white/10 text-white transition-colors hover:bg-white/20 disabled:opacity-40"
+            disabled={range >= MAX_PRACTICE_RANGE}
+            aria-label="Increase pitch range"
+            onClick={() => setRange((prev) => Math.min(MAX_PRACTICE_RANGE, prev + 6))}
+          >
+            <PlusIcon className="size-4" />
+          </button>
+        </PracticeControlGroup>
 
-          <div className="flex flex-wrap justify-end gap-2">
-            <PracticeButton onClick={loop.handleLoopCurrentPhrase}>
-              <RepeatIcon className="size-5" />
-              Phrase
-            </PracticeButton>
-            <PracticeButton onClick={loop.handleSetLoopStart}>
-              <FlagIcon className="size-5" />
-              Start {shortcutHint(keybindings, "loopStart")}
-            </PracticeButton>
-            <PracticeButton onClick={loop.handleSetLoopEnd}>
-              <FlagIcon className="size-5" />
-              End {shortcutHint(keybindings, "loopEnd")}
-            </PracticeButton>
-            <PracticeButton onClick={loop.handleRetryLoop} disabled={!loop.activeLoop}>
-              <RotateCcwIcon className="size-5" />
-              Retry {shortcutHint(keybindings, "loopRetry")}
-            </PracticeButton>
-            <PracticeButton onClick={loop.handleClearLoop} disabled={!canClear}>
-              <XIcon className="size-5" />
-              Clear {shortcutHint(keybindings, "loopClear")}
-            </PracticeButton>
-            <PracticeButton onClick={onClearAttempt} disabled={attemptPointCount === 0}>
-              <XIcon className="size-5" />
-              Clear Attempt
-            </PracticeButton>
-            <PracticeButton onClick={onRestartAttempt}>
-              <RotateCcwIcon className="size-5" />
-              Restart Attempt
-            </PracticeButton>
-            <PracticeButton onClick={handleEstimateLatency} disabled={attemptPointCount < 2}>
-              <TimerIcon className="size-5" />
-              Estimate Latency
-            </PracticeButton>
-          </div>
+        <PracticeControlGroup label="Count-in">
+          <CountInButton value={0} current={loop.countInSec} onClick={loop.handleSetCountInSec} />
+          <CountInButton value={1} current={loop.countInSec} onClick={loop.handleSetCountInSec} />
+          <CountInButton value={2} current={loop.countInSec} onClick={loop.handleSetCountInSec} />
+        </PracticeControlGroup>
 
-          <div className="flex flex-wrap items-center justify-end gap-2 text-white/80">
-            <div className="flex min-h-10 items-center gap-2 rounded-sm border border-white/15 bg-black/45 px-3 text-base">
-              <TimerIcon className="size-5" />
-              Count-in
-            </div>
-            <CountInButton value={0} current={loop.countInSec} onClick={loop.handleSetCountInSec} />
-            <CountInButton value={1} current={loop.countInSec} onClick={loop.handleSetCountInSec} />
-            <CountInButton value={2} current={loop.countInSec} onClick={loop.handleSetCountInSec} />
-            <p className="min-h-10 rounded-sm border border-white/15 bg-black/45 px-3 pt-2 text-base text-white/70">
-              {loopSummary(loop)}
-            </p>
-          </div>
-
-          <div className="flex flex-wrap items-center justify-end gap-2 text-white/80">
-            <PracticeButton onClick={setFollowMode}>
-              <TimerIcon className="size-5" />
-              Follow Live
-            </PracticeButton>
-            <PracticeButton onClick={setReviewMode}>
-              <TimerIcon className="size-5" />
-              Review Attempt
-            </PracticeButton>
-            <PracticeButton onClick={() => panReview(-10)} disabled={duration <= 0}>
-              -10s
-            </PracticeButton>
-            <PracticeButton onClick={() => panReview(10)} disabled={duration <= 0}>
-              +10s
-            </PracticeButton>
-            <button
-              type="button"
-              className="min-h-10 rounded-sm border border-white/20 bg-white/10 px-3 text-base font-semibold text-white transition-colors hover:bg-white/20"
-              onClick={() =>
-                setViewWindowSec((prev) =>
-                  clamp(prev / 1.35, MIN_VIEW_WINDOW_SEC, MAX_VIEW_WINDOW_SEC),
-                )
-              }
-            >
-              Zoom In
-            </button>
-            <button
-              type="button"
-              className="min-h-10 rounded-sm border border-white/20 bg-white/10 px-3 text-base font-semibold text-white transition-colors hover:bg-white/20"
-              onClick={() =>
-                setViewWindowSec((prev) =>
-                  clamp(prev * 1.35, MIN_VIEW_WINDOW_SEC, MAX_VIEW_WINDOW_SEC),
-                )
-              }
-            >
-              Zoom Out
-            </button>
-            <p className="min-h-10 rounded-sm border border-white/15 bg-black/45 px-3 pt-2 text-base text-white/70">
-              {viewMode === "follow" ? "Follow" : "Review"} {formatPlaybackTime(reviewStart)} to{" "}
-              {formatPlaybackTime(reviewEnd)} • {attemptPointCount} points
-            </p>
-          </div>
-          {latencyEstimateMessage && (
-            <p className="max-w-[42rem] text-right text-base font-semibold text-white/74">
-              {latencyEstimateMessage} USDX GAP/BPM was not changed.
-            </p>
-          )}
-        </div>
+        <PracticeControlGroup label="Latency">
+          <PracticeButton onClick={handleEstimateLatency} disabled={attemptPointCount < 2}>
+            <TimerIcon className="size-4" />
+            Estimate
+          </PracticeButton>
+        </PracticeControlGroup>
       </div>
+      {latencyEstimateMessage && (
+        <p className="pointer-events-none ml-auto mt-1 max-w-[42rem] shrink-0 text-right text-xs font-semibold text-white/70">
+          {latencyEstimateMessage} USDX GAP/BPM was not changed.
+        </p>
+      )}
 
       <div
         ref={lane.ref}
-        className="mt-6 min-h-0 flex-1 overflow-hidden rounded-sm border border-white/18 bg-black/50 shadow-2xl shadow-black/40"
+        className="mt-3 min-h-0 flex-1 overflow-hidden rounded-sm border border-white/18 bg-black/50 shadow-2xl shadow-black/40"
         onWheel={(event) => {
-          if (viewMode !== "review") {
-            setViewMode("review");
-            setReviewCenter(currentTime);
-          }
           if (event.ctrlKey || event.metaKey) {
+            setReviewState((prev) =>
+              reviewPracticeAttempt(prev.mode === "follow" ? currentTime : prev.center, duration),
+            );
             setViewWindowSec((prev) =>
               clamp(
                 prev * (event.deltaY > 0 ? 1.12 : 0.88),
@@ -932,47 +908,69 @@ function PracticeOverlayImpl({
       >
         <canvas ref={canvasRef} className="block" />
       </div>
-      {viewMode === "review" && duration > 0 && (
-        <div className="pointer-events-auto mt-3 flex shrink-0 items-center gap-3">
-          <span className="text-sm tracking-[0.14em] text-white/45 uppercase">Review</span>
+
+      <div className="pointer-events-auto mt-2 flex shrink-0 flex-wrap items-center gap-2 rounded-sm border border-white/12 bg-black/45 px-2 py-1.5 text-white/80">
+        <PracticeButton onClick={setFollowMode}>
+          <TimerIcon className="size-4" />
+          Follow Live
+        </PracticeButton>
+        <PracticeButton onClick={setReviewMode}>
+          <TimerIcon className="size-4" />
+          Review Attempt
+        </PracticeButton>
+        <PracticeButton onClick={() => panReview(-10)} disabled={duration <= 0}>
+          -10s
+        </PracticeButton>
+        <PracticeButton onClick={() => panReview(10)} disabled={duration <= 0}>
+          +10s
+        </PracticeButton>
+        <button
+          type="button"
+          className="min-h-8 rounded-sm border border-white/20 bg-white/10 px-2.5 text-xs font-semibold text-white transition-colors hover:bg-white/20"
+          onClick={() =>
+            setViewWindowSec((prev) => clamp(prev / 1.35, MIN_VIEW_WINDOW_SEC, MAX_VIEW_WINDOW_SEC))
+          }
+        >
+          Zoom In
+        </button>
+        <button
+          type="button"
+          className="min-h-8 rounded-sm border border-white/20 bg-white/10 px-2.5 text-xs font-semibold text-white transition-colors hover:bg-white/20"
+          onClick={() =>
+            setViewWindowSec((prev) => clamp(prev * 1.35, MIN_VIEW_WINDOW_SEC, MAX_VIEW_WINDOW_SEC))
+          }
+        >
+          Zoom Out
+        </button>
+        {viewMode === "review" && duration > 0 && (
           <input
-            className="h-3 flex-1 accent-white"
+            className="h-3 min-w-48 flex-1 accent-white"
             type="range"
             min={0}
             max={duration}
             step={0.05}
             value={viewCenter}
-            onChange={(event) => setReviewCenter(Number(event.currentTarget.value))}
+            onChange={(event) =>
+              setReviewState(reviewPracticeAttempt(Number(event.currentTarget.value), duration))
+            }
             aria-label="Review attempt timeline"
           />
-          <span className="w-24 text-right text-base tabular-nums text-white/70">
-            {formatPlaybackTime(viewCenter)}
-          </span>
-        </div>
-      )}
+        )}
+        <p className="ml-auto text-xs font-semibold tabular-nums text-white/64">
+          {viewMode === "follow" ? "Follow" : "Review"} {formatPlaybackTime(reviewStart)} to{" "}
+          {formatPlaybackTime(reviewEnd)} / {attemptPointCount} points
+        </p>
+      </div>
 
-      <div className="mt-5 shrink-0">
-        <p className="line-clamp-2 text-center text-5xl leading-tight font-semibold text-white drop-shadow">
+      <div className="mt-3 shrink-0">
+        <p className="line-clamp-2 text-center text-4xl leading-tight font-semibold text-white drop-shadow">
           {phrase}
         </p>
         {nextPhrase && (
-          <p className="mt-2 line-clamp-2 text-center text-3xl leading-tight font-semibold text-gray-400/80 drop-shadow">
+          <p className="mt-1 line-clamp-2 text-center text-2xl leading-tight font-semibold text-gray-400/80 drop-shadow">
             {nextPhrase}
           </p>
         )}
-        <div className="mt-3 flex justify-center gap-6 text-lg text-white/60">
-          <SourceLabel source={model.expectedSource} />
-          <span>{micStatus}</span>
-          {model.expectedSource === "chart" && model.pitchCalibration.midiOffset != null && (
-            <span>Pitch lock: guide vocal</span>
-          )}
-          {model.expectedSource === "chart" && model.pitchCalibration.midiOffset == null && (
-            <span>Chart pitch is relative until guide-vocal pitch lock is available</span>
-          )}
-          {timingDiagnostics.warning && (
-            <span className="font-semibold text-yellow-300">{timingDiagnostics.warning}</span>
-          )}
-        </div>
       </div>
 
       {debugEnabled && (

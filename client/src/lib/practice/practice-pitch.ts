@@ -105,6 +105,13 @@ export interface MicLatencyAdjustmentEstimate {
   sampleCount: number;
 }
 
+export type PracticeViewMode = "follow" | "review";
+
+export interface PracticeReviewState {
+  mode: PracticeViewMode;
+  center: number;
+}
+
 const DEFAULT_MISSING_CHART_DATA: PracticeMissingChartData = {
   absoluteNoteHz: true,
   noteKinds: true,
@@ -119,6 +126,52 @@ function isFiniteNumber(value: unknown): value is number {
 export function clampPracticeRange(range: number): number {
   if (!Number.isFinite(range)) return DEFAULT_PRACTICE_RANGE;
   return Math.min(MAX_PRACTICE_RANGE, Math.max(MIN_PRACTICE_RANGE, Math.round(range)));
+}
+
+function clampPracticeReviewCenter(center: number, duration: number): number {
+  const max = Math.max(0, Number.isFinite(duration) ? duration : 0);
+  return Math.min(max, Math.max(0, Number.isFinite(center) ? center : 0));
+}
+
+export function practiceReviewStateForPlayback(
+  state: PracticeReviewState,
+  isPlaying: boolean,
+  currentTime: number,
+  duration: number,
+): PracticeReviewState {
+  if (isPlaying || state.mode !== "follow") {
+    return state;
+  }
+
+  return {
+    mode: "review",
+    center: clampPracticeReviewCenter(currentTime, duration),
+  };
+}
+
+export function panPracticeReview(
+  state: PracticeReviewState,
+  deltaSec: number,
+  duration: number,
+): PracticeReviewState {
+  return {
+    mode: "review",
+    center: clampPracticeReviewCenter(state.center + deltaSec, duration),
+  };
+}
+
+export function followPracticePlayback(currentTime: number, duration: number): PracticeReviewState {
+  return {
+    mode: "follow",
+    center: clampPracticeReviewCenter(currentTime, duration),
+  };
+}
+
+export function reviewPracticeAttempt(currentTime: number, duration: number): PracticeReviewState {
+  return {
+    mode: "review",
+    center: clampPracticeReviewCenter(currentTime, duration),
+  };
 }
 
 export function findPracticeSegmentIndex(

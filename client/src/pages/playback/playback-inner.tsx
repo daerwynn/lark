@@ -14,7 +14,7 @@ import { PitchGraph } from "@/components/playback/pitch-graph";
 import { PlaybackHud } from "@/components/playback/playback-hud";
 import { PlaybackSettingsPanel } from "@/components/playback/playback-settings-panel";
 import { PlaybackTransportControls } from "@/components/playback/playback-transport-controls";
-import { PracticeOverlay } from "@/components/playback/practice-overlay";
+import { PracticeOverlay, type PracticeHudSummary } from "@/components/playback/practice-overlay";
 import { UsdxTimingPanel } from "@/components/playback/usdx-timing-panel";
 import {
   PlaybackProviders,
@@ -44,7 +44,7 @@ import {
 } from "@/lib/practice/practice-settings";
 import type { AppConfig } from "@/types/AppConfig";
 import type { Song } from "@/types/Song";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 export interface PlaybackInnerProps {
   song: Song;
@@ -80,6 +80,7 @@ function PlaybackLayout({ song, config }: PlaybackLayoutProps) {
   } = usePlaybackMicState();
   const { handleClearPracticeAttempt } = usePlaybackMicActions();
   const [practiceMode, setPracticeMode] = useState(false);
+  const [practiceHudSummary, setPracticeHudSummary] = useState<PracticeHudSummary | null>(null);
   const [usdxTimingOpen, setUsdxTimingOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const persistConfig = usePlaybackConfigPersist(config);
@@ -109,6 +110,12 @@ function PlaybackLayout({ song, config }: PlaybackLayoutProps) {
   const handleTogglePracticeMode = useCallback(() => {
     setPracticeMode((prev) => !prev);
   }, []);
+
+  useEffect(() => {
+    if (!practiceMode) {
+      setPracticeHudSummary(null);
+    }
+  }, [practiceMode]);
 
   const handleToggleUsdxTiming = useCallback(() => {
     if (!isUsdx) return;
@@ -212,6 +219,7 @@ function PlaybackLayout({ song, config }: PlaybackLayoutProps) {
             settingsOpen={settingsOpen}
             onOpenSettings={handleOpenSettings}
             keybindings={keybindings}
+            practiceSummary={practiceMode ? practiceHudSummary : null}
           />
           {practiceMode ? (
             <PracticeOverlay
@@ -231,6 +239,7 @@ function PlaybackLayout({ song, config }: PlaybackLayoutProps) {
               onClearAttempt={handleClearPracticeAttempt}
               onRestartAttempt={handleRestartPracticeAttempt}
               onLiveTraceOffsetAdjustment={handleLiveTraceOffsetAdjustment}
+              onSummaryChange={setPracticeHudSummary}
             />
           ) : (
             <>
@@ -263,11 +272,16 @@ function PlaybackLayout({ song, config }: PlaybackLayoutProps) {
             pitchPreservingPlaybackSupported={pitchPreservingPlaybackSupported}
             onPlaybackRateRequested={handlePlaybackRateRequested}
             keybindings={keybindings}
+            compact={practiceMode}
           />
         </>
       )}
 
-      <PauseOverlay open={paused && !result.open} onContinue={handleContinue} onExit={handleExit} />
+      <PauseOverlay
+        open={paused && !result.open && !practiceMode}
+        onContinue={handleContinue}
+        onExit={handleExit}
+      />
 
       <ResultDialog
         open={result.open}

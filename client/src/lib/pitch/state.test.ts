@@ -47,6 +47,18 @@ describe("pitch state helpers", () => {
     expect(attempt.snapshot().times).toEqual([0.1, 0.2, 0.3]);
   });
 
+  it("clears full-attempt history only when reset is requested", () => {
+    const attempt = new PitchStateBuffer(Number.POSITIVE_INFINITY);
+
+    for (const time of [0.1, 0.2, 0.3]) {
+      attempt.tryPush(null, 220, 0, time);
+    }
+
+    expect(attempt.snapshot().times).toEqual([0.1, 0.2, 0.3]);
+    attempt.reset();
+    expect(attempt.snapshot().times).toEqual([]);
+  });
+
   it("stores raw mic fields separately from scoring pitch", () => {
     const buffer = new PitchStateBuffer();
 

@@ -13,9 +13,13 @@ import {
   extractChartNotes,
   filterPitchSeriesSince,
   findPracticeSegmentIndex,
+  followPracticePlayback,
   isPracticeSegmentDisplayVisible,
+  panPracticeReview,
   practicePitchToY,
+  practiceReviewStateForPlayback,
   practiceTimeToX,
+  reviewPracticeAttempt,
   shouldConnectTracePoints,
   type PracticeExpectedNote,
   type PracticeTracePoint,
@@ -899,5 +903,53 @@ describe("practice pitch adapter", () => {
     expect(filtered.userMicOffsetSampleCount).toEqual([0, 34, 35]);
     expect(filtered.userMicOffsetLocked).toEqual([false, true, true]);
     expect(filtered.livePointScored).toEqual([false, true, true]);
+  });
+
+  it("keeps stored live trace visible when playback time advances past the attempt", () => {
+    const attemptSeries = withLiveDisplay(
+      {
+        times: [1, 1.2, 1.4],
+        refPitches: [null, null, null],
+        userPitches: [null, null, null],
+        similarities: [0, 0, 0],
+        rawMicHz: [semitoneToFreq(10), null, semitoneToFreq(12)],
+        rawMicMidi: [10, null, 12],
+        rawMicVoiced: [true, false, true],
+      },
+      [10, 10, 12],
+      {
+        kind: ["voiced", "silence", "voiced"],
+        cents: [0, null, 0],
+        expectedChart: [10, null, 12],
+      },
+    );
+
+    const model = buildPracticeLaneModel({
+      segments,
+      series: attemptSeries,
+      currentTime: 30,
+    });
+
+    expect(model.rawLiveVoiceTrace).toHaveLength(3);
+    expect(model.liveVoiceTrace).toHaveLength(3);
+    expect(model.rawLiveVoiceTrace.map((point) => point.time)).toEqual([1, 1.2, 1.4]);
+  });
+
+  it("switches follow mode to review on pause without changing the review center later", () => {
+    const paused = practiceReviewStateForPlayback(followPracticePlayback(12, 100), false, 12, 100);
+
+    expect(paused).toEqual({ mode: "review", center: 12 });
+    expect(practiceReviewStateForPlayback(paused, false, 20, 100)).toBe(paused);
+  });
+
+  it("manual review pan disables follow and clamps to the song duration", () => {
+    expect(panPracticeReview(followPracticePlayback(12, 100), -20, 100)).toEqual({
+      mode: "review",
+      center: 0,
+    });
+    expect(panPracticeReview(reviewPracticeAttempt(95, 100), 20, 100)).toEqual({
+      mode: "review",
+      center: 100,
+    });
   });
 });
