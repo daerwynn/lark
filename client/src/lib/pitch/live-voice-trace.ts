@@ -1,14 +1,15 @@
 import type { PracticePitchFeedbackSettings } from "@/lib/practice/practice-settings";
 import { freqToSemitone, semitoneToFreq } from "./state";
 
-export type LiveVoiceAccuracy = "green" | "yellow" | "red" | "none";
+export type LiveVoiceAccuracy = "green" | "yellow" | "orange" | "red" | "none";
 export type LiveVoiceRegister = "baseline" | "higher" | "lower" | "extreme";
+export type LiveVoiceTraceKind = "voiced" | "silence";
 
 export interface LiveVoiceTracePoint {
   time: number;
   songTimeSec: number;
-  rawHz: number;
-  rawMidi: number;
+  rawHz: number | null;
+  rawMidi: number | null;
   rawDisplayMidi: number;
   displayMidi: number;
   stableHz: number | null;
@@ -20,7 +21,8 @@ export interface LiveVoiceTracePoint {
   baselineRelativeOctaveOffset: number | null;
   clarity: number | null;
   rms: number | null;
-  voiced: true;
+  voiced: boolean;
+  kind: LiveVoiceTraceKind;
   traceBreak: boolean;
   accepted: boolean;
   dropReason?: string;
@@ -64,6 +66,17 @@ export interface BuildRawLiveVoicePointArgs {
   time: number;
   rawHz: number | null | undefined;
   displayMidi?: number | null | undefined;
+  expectedMidi?: number | null | undefined;
+  baselineOctaveOffset?: number | null;
+  clarity?: number | null;
+  rms?: number | null;
+  traceBreak?: boolean;
+}
+
+export interface BuildLiveVoiceSilencePointArgs {
+  time: number;
+  displayMidi: number | null | undefined;
+  expectedMidi?: number | null | undefined;
   clarity?: number | null;
   rms?: number | null;
   traceBreak?: boolean;
@@ -120,18 +133,12 @@ export function normalizeMicPitchForExpected(
   };
 }
 
-export function foldMidiNearCenter(rawMidi: number, centerMidi: number | null | undefined): number {
-  if (!Number.isFinite(rawMidi) || typeof centerMidi !== "number" || !Number.isFinite(centerMidi)) {
-    return rawMidi;
-  }
-
-  return rawMidi + Math.round((centerMidi - rawMidi) / 12) * 12;
-}
-
 export function buildRawLiveVoiceTracePoint({
   time,
   rawHz,
   displayMidi,
+  expectedMidi,
+  baselineOctaveOffset = null,
   clarity = null,
   rms = null,
   traceBreak = false,
@@ -143,6 +150,12 @@ export function buildRawLiveVoiceTracePoint({
   const rawMidi = freqToSemitone(rawHz);
   const pitch =
     typeof displayMidi === "number" && Number.isFinite(displayMidi) ? displayMidi : rawMidi;
+  const expectedMidiValue =
+    typeof expectedMidi === "number" && Number.isFinite(expectedMidi) ? expectedMidi : null;
+  const normalized =
+    expectedMidiValue == null
+      ? null
+      : normalizeMicPitchForExpected(rawMidi, expectedMidiValue, baselineOctaveOffset);
 
   return {
     time,
@@ -153,17 +166,56 @@ export function buildRawLiveVoiceTracePoint({
     displayMidi: pitch,
     stableHz: semitoneToFreq(pitch),
     stableMidi: pitch,
-    expectedMidi: null,
+    expectedMidi: normalized == null ? null : expectedMidiValue,
+    centsFromExpected: normalized?.centsFromExpected ?? null,
+    absoluteOctaveOffsetFromExpected: normalized?.absoluteOctaveOffsetFromExpected ?? null,
+    baselineOctaveOffset: normalized?.baselineOctaveOffset ?? null,
+    baselineRelativeOctaveOffset: normalized?.baselineRelativeOctaveOffset ?? null,
+    clarity,
+    rms,
+    voiced: true,
+    kind: "voiced",
+    traceBreak,
+    accepted: true,
+    pitch,
+  };
+}
+
+export function buildLiveVoiceSilencePoint({
+  time,
+  displayMidi,
+  expectedMidi = null,
+  clarity = null,
+  rms = null,
+  traceBreak = false,
+}: BuildLiveVoiceSilencePointArgs): LiveVoiceTracePoint | null {
+  if (!Number.isFinite(time) || typeof displayMidi !== "number" || !Number.isFinite(displayMidi)) {
+    return null;
+  }
+
+  return {
+    time,
+    songTimeSec: time,
+    rawHz: null,
+    rawMidi: null,
+    rawDisplayMidi: displayMidi,
+    displayMidi,
+    stableHz: null,
+    stableMidi: null,
+    expectedMidi:
+      typeof expectedMidi === "number" && Number.isFinite(expectedMidi) ? expectedMidi : null,
     centsFromExpected: null,
     absoluteOctaveOffsetFromExpected: null,
     baselineOctaveOffset: null,
     baselineRelativeOctaveOffset: null,
     clarity,
     rms,
-    voiced: true,
+    voiced: false,
+    kind: "silence",
     traceBreak,
-    accepted: true,
-    pitch,
+    accepted: false,
+    dropReason: "unvoiced",
+    pitch: displayMidi,
   };
 }
 
@@ -200,6 +252,7 @@ export function buildLiveVoiceTracePoint({
       clarity,
       rms,
       voiced: true,
+      kind: "voiced",
       traceBreak,
       accepted: true,
       pitch: rawMidi,
@@ -229,6 +282,7 @@ export function buildLiveVoiceTracePoint({
     clarity,
     rms,
     voiced: true,
+    kind: "voiced",
     traceBreak,
     accepted: true,
     pitch: normalized.displayMidi + laneShift,
@@ -406,6 +460,7 @@ export function liveVoiceAccuracyFromCents(
   const abs = Math.abs(centsFromExpected);
   if (abs <= settings.greenCents) return "green";
   if (abs <= settings.yellowCents) return "yellow";
+  if (abs <= settings.orangeCents) return "orange";
   return "red";
 }
 
@@ -425,8 +480,17 @@ export function styleLiveVoiceTracePoint(
   point: LiveVoiceTracePoint,
   settings: PracticePitchFeedbackSettings,
 ): LiveVoiceTraceStyle {
+  if (point.kind === "silence" || !point.voiced) {
+    return {
+      accuracy: "none",
+      register: "baseline",
+      stroke: "rgba(78, 82, 88, 0.68)",
+      marker: "rgba(92, 96, 104, 0.88)",
+    };
+  }
+
   const accuracy = liveVoiceAccuracyFromCents(point.centsFromExpected, settings);
-  const register = liveVoiceRegisterFromRelativeOffset(point.baselineRelativeOctaveOffset);
+  const register = liveVoiceRegisterFromRelativeOffset(point.absoluteOctaveOffsetFromExpected);
   const palette: Record<LiveVoiceAccuracy, Record<LiveVoiceRegister, [number, number, number]>> = {
     green: {
       baseline: [78, 255, 126],
@@ -440,6 +504,12 @@ export function styleLiveVoiceTracePoint(
       lower: [190, 145, 26],
       extreme: [255, 178, 70],
     },
+    orange: {
+      baseline: [255, 145, 58],
+      higher: [255, 188, 119],
+      lower: [188, 92, 28],
+      extreme: [255, 105, 190],
+    },
     red: {
       baseline: [255, 88, 88],
       higher: [255, 155, 145],
@@ -447,9 +517,9 @@ export function styleLiveVoiceTracePoint(
       extreme: [255, 66, 220],
     },
     none: {
-      baseline: [185, 190, 198],
-      higher: [218, 222, 230],
-      lower: [120, 126, 136],
+      baseline: [235, 255, 245],
+      higher: [255, 255, 255],
+      lower: [170, 184, 178],
       extreme: [210, 120, 255],
     },
   };

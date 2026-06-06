@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { semitoneToFreq, type PitchSeries } from "@/lib/pitch/state";
 import type { Segment } from "@/types/Transcript";
 import {
+  buildRawLiveVoiceTrace,
   buildPracticeLaneModel,
   clampPracticeRange,
   computeChartPitchCalibration,
@@ -140,6 +141,7 @@ describe("practice pitch adapter", () => {
 
     expect(model.expectedSource).toBe("reference");
     expect(model.referenceTrace.length).toBeGreaterThan(0);
+    expect(model.vertical.source).toBe("stable-fallback");
     expect(model.missingChartData.absoluteNoteHz).toBe(true);
   });
 
@@ -150,7 +152,14 @@ describe("practice pitch adapter", () => {
   });
 
   it("maps practice pitch to the lane y coordinate", () => {
-    const vertical = { min: 50, max: 74, center: 62, range: 24 };
+    const vertical = {
+      min: 50,
+      max: 74,
+      center: 62,
+      range: 24,
+      source: "chart" as const,
+      manualRange: true,
+    };
 
     expect(practicePitchToY(74, vertical, 100, 10)).toBeCloseTo(10);
     expect(practicePitchToY(62, vertical, 100, 10)).toBeCloseTo(50);
@@ -255,7 +264,7 @@ describe("practice pitch adapter", () => {
     expect(model.userTrace[0].pitch).toBeCloseTo(0);
   });
 
-  it("includes visible user trace when computing chart-note vertical range", () => {
+  it("uses a stable chart-derived vertical range without live mic pitch", () => {
     const model = buildPracticeLaneModel({
       segments: [
         {
@@ -269,6 +278,8 @@ describe("practice pitch adapter", () => {
         times: [1.25],
         refPitches: [null],
         userPitches: [semitoneToFreq(67)],
+        rawMicHz: [semitoneToFreq(67)],
+        rawMicVoiced: [true],
         similarities: [0],
       },
       currentTime: 1.25,
@@ -277,7 +288,93 @@ describe("practice pitch adapter", () => {
 
     expect(model.userTrace).toHaveLength(1);
     expect(model.userTrace[0].pitch).toBeCloseTo(-5);
-    expect(model.vertical.min).toBeLessThan(-6);
+    expect(model.vertical.source).toBe("chart");
+    expect(model.vertical.center).toBe(0);
+    expect(model.vertical.range).toBe(12);
+    expect(model.vertical.min).toBe(-6);
+    expect(model.vertical.max).toBe(6);
+  });
+
+  it("keeps vertical range unchanged as playback time changes", () => {
+    const stableSegments: Segment[] = [
+      {
+        text: "wide",
+        start: 1,
+        end: 12,
+        words: [
+          { word: "low", start: 1, end: 2, pitch: 60 },
+          { word: "high", start: 10, end: 11, pitch: 72 },
+        ],
+      },
+    ];
+    const stableSeries: PitchSeries = {
+      times: [1.5, 10.5],
+      refPitches: [null, null],
+      userPitches: [null, null],
+      rawMicHz: [semitoneToFreq(84), semitoneToFreq(48)],
+      rawMicVoiced: [true, true],
+      similarities: [0, 0],
+    };
+
+    const early = buildPracticeLaneModel({
+      segments: stableSegments,
+      series: stableSeries,
+      currentTime: 1.5,
+      semitoneRange: 12,
+    });
+    const late = buildPracticeLaneModel({
+      segments: stableSegments,
+      series: stableSeries,
+      currentTime: 10.5,
+      semitoneRange: 12,
+    });
+
+    expect(early.vertical).toEqual(late.vertical);
+    expect(early.vertical).toMatchObject({
+      source: "chart",
+      center: 66,
+      range: 18,
+      manualRange: false,
+    });
+  });
+
+  it("changes stable vertical range only when the selected range changes", () => {
+    const stableSegments: Segment[] = [
+      {
+        text: "wide",
+        start: 1,
+        end: 12,
+        words: [
+          { word: "low", start: 1, end: 2, pitch: 60 },
+          { word: "high", start: 10, end: 11, pitch: 72 },
+        ],
+      },
+    ];
+    const stableSeries: PitchSeries = {
+      times: [],
+      refPitches: [],
+      userPitches: [],
+      similarities: [],
+    };
+
+    const compact = buildPracticeLaneModel({
+      segments: stableSegments,
+      series: stableSeries,
+      currentTime: 1.5,
+      semitoneRange: 12,
+    });
+    const expanded = buildPracticeLaneModel({
+      segments: stableSegments,
+      series: stableSeries,
+      currentTime: 1.5,
+      semitoneRange: 24,
+    });
+
+    expect(compact.vertical.range).toBe(18);
+    expect(compact.vertical.manualRange).toBe(false);
+    expect(expanded.vertical.range).toBe(24);
+    expect(expanded.vertical.manualRange).toBe(true);
+    expect(expanded.vertical.center).toBe(compact.vertical.center);
   });
 
   it("builds the main live voice trace from raw mic pitch instead of scoring pitch", () => {
@@ -306,9 +403,10 @@ describe("practice pitch adapter", () => {
 
     expect(model.userTrace[0].pitch).toBeCloseTo(72);
     expect(model.liveVoiceTrace).toBe(model.rawLiveVoiceTrace);
-    expect(model.liveVoiceTrace[0].displayMidi).toBeCloseTo(69);
+    expect(model.liveVoiceTrace[0].displayMidi).toBeCloseTo(57);
     expect(model.liveVoiceTrace[0].rawMidi).toBeCloseTo(57);
-    expect(model.liveVoiceTrace[0].expectedMidi).toBeNull();
+    expect(model.liveVoiceTrace[0].expectedMidi).toBe(69);
+    expect(model.liveVoiceTrace[0].absoluteOctaveOffsetFromExpected).toBe(-1);
     expect(model.chartRelativeVoiceTrace[0].displayMidi).toBeCloseTo(69);
     expect(model.chartRelativeVoiceTrace[0].absoluteOctaveOffsetFromExpected).toBe(-1);
     expect(model.latestLiveCentsDifference).toBe(0);
@@ -367,8 +465,10 @@ describe("practice pitch adapter", () => {
       currentTime: 1.06,
     });
 
-    expect(model.liveVoiceTrace).toHaveLength(2);
-    expect(model.liveVoiceTrace[1].traceBreak).toBe(false);
+    expect(model.liveVoiceTrace).toHaveLength(3);
+    expect(model.liveVoiceTrace[1].kind).toBe("silence");
+    expect(model.liveVoiceTrace[1].displayMidi).toBeCloseTo(69);
+    expect(model.liveVoiceTrace[2].traceBreak).toBe(false);
   });
 
   it("preserves raw pitch contour instead of snapping every point to the expected note", () => {
@@ -398,9 +498,31 @@ describe("practice pitch adapter", () => {
     expect(model.rawUserTrace).toHaveLength(3);
     expect(model.liveVoiceTrace).toHaveLength(3);
     expect(model.liveVoiceTrace.map((point) => Math.round(point.displayMidi))).toEqual([
-      69, 70, 71,
+      57, 58, 59,
     ]);
-    expect(model.liveVoiceTrace.every((point) => point.expectedMidi == null)).toBe(true);
+    expect(model.liveVoiceTrace.map((point) => point.centsFromExpected)).toEqual([0, 100, 200]);
+  });
+
+  it("builds raw live trace independently of viewport time", () => {
+    const chartNotes = [
+      { start: 1, end: 2, pitch: 69, label: "A", source: "chart" as const },
+      { start: 8, end: 9, pitch: 72, label: "C", source: "chart" as const },
+    ];
+    const rawSeries: PitchSeries = {
+      times: [1.25, 4, 8.25],
+      refPitches: [null, null, null],
+      userPitches: [null, null, null],
+      rawMicHz: [semitoneToFreq(69), semitoneToFreq(70), semitoneToFreq(72)],
+      rawMicVoiced: [true, true, true],
+      similarities: [0, 0, 0],
+    };
+
+    const first = buildRawLiveVoiceTrace(rawSeries, chartNotes);
+    const second = buildRawLiveVoiceTrace(rawSeries, chartNotes);
+
+    expect(first).toEqual(second);
+    expect(first.map((point) => point.time)).toEqual([1.25, 4, 8.25]);
+    expect(first.map((point) => Math.round(point.displayMidi))).toEqual([69, 70, 72]);
   });
 
   it("carries trace breaks across skipped null pitch samples", () => {

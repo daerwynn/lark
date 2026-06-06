@@ -1,10 +1,10 @@
 import type { PitchSeries } from "@/lib/pitch/state";
 import { freqToSemitone, snapToRefOctave } from "@/lib/pitch/state";
 import {
+  buildLiveVoiceSilencePoint,
   buildRawLiveVoiceTracePoint,
   buildLiveVoiceTracePoint,
   computeRollingBaselineOctaveOffset,
-  foldMidiNearCenter,
   LiveVoiceDisplayStabilizer,
   type LiveVoiceTracePoint,
 } from "@/lib/pitch/live-voice-trace";
@@ -22,6 +22,9 @@ const SEGMENT_LEAD_SEC = 1;
 const SEGMENT_LINGER_SEC = 0.75;
 const FALLBACK_SAMPLE_COUNT = 30;
 const CHART_PITCH_MATCH_TOLERANCE_SEC = 0.2;
+const STABLE_VERTICAL_PADDING_SEMITONES = 6;
+const SAFE_ABSOLUTE_MIDI_MIN = 24;
+const SAFE_ABSOLUTE_MIDI_MAX = 96;
 
 export type ExpectedPitchSource = "chart" | "reference" | "none";
 
@@ -60,6 +63,8 @@ export interface PracticeVerticalRange {
   max: number;
   center: number;
   range: number;
+  source: "chart" | "stable-fallback";
+  manualRange: boolean;
 }
 
 export interface PracticeLaneModel {
@@ -218,6 +223,19 @@ function expectedMidiForNote(
   return calibration.midiOffset == null ? note.pitch : note.pitch + calibration.midiOffset;
 }
 
+function expectedMidiForRawTrace(
+  note: PracticeExpectedNote | null,
+  calibration: PracticePitchCalibration,
+): number | null {
+  if (!note) return null;
+  if (calibration.midiOffset != null) {
+    return note.pitch + calibration.midiOffset;
+  }
+  return note.pitch >= SAFE_ABSOLUTE_MIDI_MIN && note.pitch <= SAFE_ABSOLUTE_MIDI_MAX
+    ? note.pitch
+    : null;
+}
+
 function median(values: number[]): number | null {
   if (values.length === 0) return null;
   const sorted = [...values].sort((a, b) => a - b);
@@ -373,68 +391,65 @@ export function buildRawUserTrace(
   );
 }
 
-function rawMicMidiValuesInWindow(series: PitchSeries, start: number, end: number): number[] {
-  const values: number[] = [];
-  for (let index = 0; index < series.times.length; index++) {
-    const time = series.times[index];
-    if (!isFiniteNumber(time) || time < start || time > end) continue;
-
-    const rawHz = series.rawMicHz?.[index] ?? null;
-    const voiced = series.rawMicVoiced?.[index] ?? rawHz != null;
-    if (!voiced || !isFiniteNumber(rawHz) || rawHz <= 0) continue;
-
-    values.push(freqToSemitone(rawHz));
-  }
-  return values;
-}
-
-function rawLiveDisplayCenter(
-  series: PitchSeries,
-  chartNotes: PracticeExpectedNote[],
-  currentTime: number,
-  windowBefore: number,
-  windowAfter: number,
-): number | null {
-  const windowStart = currentTime - windowBefore;
-  const windowEnd = currentTime + windowAfter;
-  return (
-    median(valuesInWindow(chartNotes, windowStart, windowEnd)) ??
-    median(rawMicMidiValuesInWindow(series, windowStart, windowEnd))
-  );
-}
-
 export function buildRawLiveVoiceTrace(
   series: PitchSeries,
   chartNotes: PracticeExpectedNote[],
-  currentTime: number,
-  windowBefore: number = PRACTICE_WINDOW_BEFORE,
-  windowAfter: number = PRACTICE_WINDOW_AFTER,
+  calibration: PracticePitchCalibration = computeChartPitchCalibration(series, chartNotes),
 ): LiveVoiceTracePoint[] {
   const points: LiveVoiceTracePoint[] = [];
-  const centerMidi = rawLiveDisplayCenter(
-    series,
-    chartNotes,
-    currentTime,
-    windowBefore,
-    windowAfter,
-  );
+  const hasRawMicData =
+    (series.rawMicHz?.length ?? 0) > 0 || (series.rawMicVoiced?.length ?? 0) > 0;
+  if (!hasRawMicData) return points;
+
+  let baselineOctaveOffset: number | null = null;
+  let lastDisplayPitch: number | null = null;
 
   for (let index = 0; index < series.times.length; index++) {
     const time = series.times[index];
+    if (!isFiniteNumber(time)) continue;
+
     const rawHz = series.rawMicHz?.[index] ?? null;
     const voiced = series.rawMicVoiced?.[index] ?? rawHz != null;
-    if (!voiced || !isFiniteNumber(rawHz) || rawHz <= 0 || !isFiniteNumber(time)) continue;
+    const note = expectedNoteAtTime(chartNotes, time, 0);
+    const expectedMidi = expectedMidiForRawTrace(note, calibration);
+    const clarity = series.rawMicClarity?.[index] ?? null;
+    const rms = series.rawMicRms?.[index] ?? null;
 
-    const rawMidi = freqToSemitone(rawHz);
-    const point = buildRawLiveVoiceTracePoint({
-      time,
-      rawHz,
-      displayMidi: foldMidiNearCenter(rawMidi, centerMidi),
-      clarity: series.rawMicClarity?.[index] ?? null,
-      rms: series.rawMicRms?.[index] ?? null,
-    });
-    if (point) {
+    if (voiced && isFiniteNumber(rawHz) && rawHz > 0) {
+      const point = buildRawLiveVoiceTracePoint({
+        time,
+        rawHz,
+        expectedMidi,
+        baselineOctaveOffset,
+        clarity,
+        rms,
+      });
+      if (!point) continue;
+
       points.push(point);
+      lastDisplayPitch = point.pitch;
+      baselineOctaveOffset = computeRollingBaselineOctaveOffset(points, baselineOctaveOffset);
+      const updatedPoint = points[points.length - 1];
+      if (updatedPoint && baselineOctaveOffset != null) {
+        updatedPoint.baselineOctaveOffset = baselineOctaveOffset;
+        updatedPoint.baselineRelativeOctaveOffset =
+          updatedPoint.absoluteOctaveOffsetFromExpected == null
+            ? null
+            : updatedPoint.absoluteOctaveOffsetFromExpected - baselineOctaveOffset;
+      }
+      continue;
+    }
+
+    const silencePitch = lastDisplayPitch ?? note?.pitch ?? 60;
+    const silencePoint = buildLiveVoiceSilencePoint({
+      time,
+      displayMidi: silencePitch,
+      expectedMidi,
+      clarity,
+      rms,
+    });
+    if (silencePoint) {
+      points.push(silencePoint);
     }
   }
 
@@ -517,11 +532,9 @@ export function buildChartRelativeVoiceTrace(
 export function buildLiveVoiceTrace(
   series: PitchSeries,
   chartNotes: PracticeExpectedNote[],
-  currentTime: number,
-  windowBefore: number = PRACTICE_WINDOW_BEFORE,
-  windowAfter: number = PRACTICE_WINDOW_AFTER,
+  calibration: PracticePitchCalibration = computeChartPitchCalibration(series, chartNotes),
 ): LiveVoiceTracePoint[] {
-  return buildRawLiveVoiceTrace(series, chartNotes, currentTime, windowBefore, windowAfter);
+  return buildRawLiveVoiceTrace(series, chartNotes, calibration);
 }
 
 export function shouldConnectTracePoints(
@@ -568,39 +581,23 @@ export function computePhraseMatchQuality(
   return rolling == null ? null : Math.round(rolling * 100);
 }
 
-function valuesInWindow<T extends { time?: number; start?: number; end?: number; pitch: number }>(
-  items: T[],
-  start: number,
-  end: number,
-): number[] {
-  return items
-    .filter((item) => {
-      const itemStart = item.start ?? item.time ?? 0;
-      const itemEnd = item.end ?? item.time ?? 0;
-      return itemEnd >= start && itemStart <= end;
-    })
-    .map((item) => item.pitch);
-}
-
 function computeVerticalRange(
-  expectedNotes: PracticeExpectedNote[],
+  chartNotes: PracticeExpectedNote[],
   referenceTrace: PracticeTracePoint[],
-  rawLiveVoiceTrace: LiveVoiceTracePoint[],
-  fallbackUserTrace: PracticeTracePoint[],
-  currentTime: number,
-  range: number,
-  windowBefore: number,
-  windowAfter: number,
+  selectedRange: number,
 ): PracticeVerticalRange {
-  const windowStart = currentTime - windowBefore;
-  const windowEnd = currentTime + windowAfter;
-  const expectedValues = valuesInWindow(expectedNotes, windowStart, windowEnd);
-  const visibleUserTrace = rawLiveVoiceTrace.length > 0 ? rawLiveVoiceTrace : fallbackUserTrace;
-  const traceSource =
-    expectedValues.length > 0 ? visibleUserTrace : [...referenceTrace, ...visibleUserTrace];
-  const traceValues = valuesInWindow(traceSource, windowStart, windowEnd);
-  const values = expectedValues.length > 0 ? [...expectedValues, ...traceValues] : traceValues;
-  const center = average(values) ?? 60;
+  const chartValues = chartNotes.map((note) => note.pitch).filter(isFiniteNumber);
+  const values =
+    chartValues.length > 0
+      ? chartValues
+      : referenceTrace.map((point) => point.pitch).filter(isFiniteNumber);
+  const source: PracticeVerticalRange["source"] =
+    chartValues.length > 0 ? "chart" : "stable-fallback";
+  const minPitch = values.length > 0 ? Math.min(...values) : 60;
+  const maxPitch = values.length > 0 ? Math.max(...values) : 60;
+  const center = (minPitch + maxPitch) / 2;
+  const requiredRange = Math.max(1, maxPitch - minPitch + STABLE_VERTICAL_PADDING_SEMITONES);
+  const range = Math.max(selectedRange, requiredRange);
   const half = range / 2;
 
   return {
@@ -608,6 +605,8 @@ function computeVerticalRange(
     max: center + half,
     center,
     range,
+    source,
+    manualRange: selectedRange >= requiredRange,
   };
 }
 
@@ -724,8 +723,6 @@ export function buildPracticeLaneModel({
   series,
   currentTime,
   semitoneRange = DEFAULT_PRACTICE_RANGE,
-  windowBefore = PRACTICE_WINDOW_BEFORE,
-  windowAfter = PRACTICE_WINDOW_AFTER,
   lyricDisplayOffsetSec = 0,
   lyricLeadSec = SEGMENT_LEAD_SEC,
 }: BuildPracticeLaneArgs): PracticeLaneModel {
@@ -743,13 +740,7 @@ export function buildPracticeLaneModel({
   const referenceTrace = buildReferenceTrace(series, chartNotes, pitchCalibration);
   const rawUserTrace = buildRawUserTrace(series, chartNotes, pitchCalibration);
   const userTrace = buildUserTrace(series, chartNotes, pitchCalibration);
-  const rawLiveVoiceTrace = buildRawLiveVoiceTrace(
-    series,
-    chartNotes,
-    currentTime,
-    windowBefore,
-    windowAfter,
-  );
+  const rawLiveVoiceTrace = buildRawLiveVoiceTrace(series, chartNotes, pitchCalibration);
   const chartRelativeVoiceTrace = buildChartRelativeVoiceTrace(
     series,
     chartNotes,
@@ -788,16 +779,7 @@ export function buildPracticeLaneModel({
     latestUserPitch,
     latestLiveVoicePoint,
     latestChartRelativeVoicePoint,
-    vertical: computeVerticalRange(
-      expectedNotes,
-      referenceTrace,
-      rawLiveVoiceTrace,
-      userTrace,
-      currentTime,
-      range,
-      windowBefore,
-      windowAfter,
-    ),
+    vertical: computeVerticalRange(chartNotes, referenceTrace, range),
     missingChartData: hasChartNotes
       ? DEFAULT_MISSING_CHART_DATA
       : {
@@ -810,6 +792,6 @@ export function buildPracticeLaneModel({
       expectedForLatestUser?.pitch,
       latestUserPitch?.pitch,
     ),
-    latestLiveCentsDifference: latestChartRelativeVoicePoint?.centsFromExpected ?? null,
+    latestLiveCentsDifference: latestLiveVoicePoint?.centsFromExpected ?? null,
   };
 }

@@ -67,7 +67,6 @@ const LANE_PADDING_X = 20;
 const NOTE_COLOR = "rgba(91, 214, 255, 0.78)";
 const NOTE_EDGE = "rgba(255, 255, 255, 0.7)";
 const REF_COLOR = "rgba(91, 214, 255, 0.72)";
-const RAW_LIVE_VOICE_COLOR = "rgba(235, 255, 245, 0.98)";
 const CHART_RELATIVE_TRACE_COLOR = "rgba(255, 188, 83, 0.72)";
 const USER_GOOD = "rgba(78, 255, 126, 0.95)";
 const USER_OK = "rgba(255, 218, 82, 0.95)";
@@ -336,7 +335,6 @@ function drawLiveVoiceTrace(
     lineWidth?: number;
     color?: string;
     maxGapSec?: number;
-    useScoredStyle?: boolean;
   } = {},
 ): void {
   ctx.save();
@@ -353,11 +351,12 @@ function drawLiveVoiceTrace(
     const x2 = timeToX(point.time, currentTime, size.width);
     if ((x1 < 0 && x2 < 0) || (x1 > size.width && x2 > size.width)) continue;
 
+    ctx.lineWidth =
+      point.kind === "silence" || prev.kind === "silence"
+        ? Math.max(3, (options.lineWidth ?? 10) * 0.55)
+        : (options.lineWidth ?? 10);
     ctx.strokeStyle =
-      options.color ??
-      (options.useScoredStyle
-        ? styleLiveVoiceTracePoint(point, settings.pitchFeedback).stroke
-        : RAW_LIVE_VOICE_COLOR);
+      options.color ?? styleLiveVoiceTracePoint(point, settings.pitchFeedback).stroke;
     ctx.beginPath();
     ctx.moveTo(x1, pitchToY(prev.pitch, model, size.height));
     ctx.lineTo(x2, pitchToY(point.pitch, model, size.height));
@@ -372,7 +371,7 @@ function drawLatestLiveVoiceMarker(
   size: Size,
   model: PracticeLaneModel,
   currentTime: number,
-  color: string = RAW_LIVE_VOICE_COLOR,
+  settings: PracticeSettings,
 ): void {
   const point = model.latestLiveVoicePoint;
   if (!point) return;
@@ -381,8 +380,9 @@ function drawLatestLiveVoiceMarker(
   if (x < 0 || x > size.width) return;
 
   const y = pitchToY(point.pitch, model, size.height);
+  const style = styleLiveVoiceTracePoint(point, settings.pitchFeedback);
   ctx.save();
-  ctx.fillStyle = color;
+  ctx.fillStyle = style.marker;
   ctx.strokeStyle = "rgba(255,255,255,0.95)";
   ctx.lineWidth = 4;
   ctx.beginPath();
@@ -422,7 +422,6 @@ function drawLane(
 
   drawLiveVoiceTrace(ctx, size, model, currentTime, model.rawLiveVoiceTrace, settings, {
     lineWidth: 10,
-    color: RAW_LIVE_VOICE_COLOR,
     maxGapSec: RAW_LIVE_VOICE_MAX_CONNECTION_GAP_SEC,
   });
 
@@ -433,7 +432,7 @@ function drawLane(
     });
   }
 
-  drawLatestLiveVoiceMarker(ctx, size, model, currentTime);
+  drawLatestLiveVoiceMarker(ctx, size, model, currentTime, settings);
 }
 
 function SourceLabel({ source }: { source: PracticeLaneModel["expectedSource"] }) {
@@ -460,10 +459,26 @@ function practiceDebugEnabled(): boolean {
   }
 }
 
-function countLiveVoicePointsInWindow(points: LiveVoiceTracePoint[], currentTime: number): number {
+function countLiveVoicePointsInWindow(
+  points: LiveVoiceTracePoint[],
+  currentTime: number,
+  kind?: LiveVoiceTracePoint["kind"],
+): number {
   const start = currentTime - PRACTICE_WINDOW_BEFORE;
   const end = currentTime + PRACTICE_WINDOW_AFTER;
-  return points.filter((point) => point.time >= start && point.time <= end).length;
+  return points.filter(
+    (point) => point.time >= start && point.time <= end && (kind == null || point.kind === kind),
+  ).length;
+}
+
+function latestVoicedLiveVoicePoint(points: LiveVoiceTracePoint[]): LiveVoiceTracePoint | null {
+  for (let index = points.length - 1; index >= 0; index--) {
+    const point = points[index];
+    if (point.kind === "voiced") {
+      return point;
+    }
+  }
+  return null;
 }
 
 function segmentTimingSignature(segments: Segment[]): string {
@@ -627,14 +642,20 @@ function PracticeOverlayImpl({
     ? "Mic: off"
     : !micPitchActive
       ? "Mic: listening"
-      : latestLiveAge <= 0.35
+      : latestLiveAge <= 0.35 && model.latestLiveVoicePoint?.kind === "voiced"
         ? "Mic: pitch detected"
         : "Mic: no pitch";
-  const rawTracePointsInWindow = countLiveVoicePointsInWindow(model.rawLiveVoiceTrace, currentTime);
+  const visibleLiveTracePoints = countLiveVoicePointsInWindow(model.rawLiveVoiceTrace, currentTime);
+  const silenceTracePointsInWindow = countLiveVoicePointsInWindow(
+    model.rawLiveVoiceTrace,
+    currentTime,
+    "silence",
+  );
   const scoredTracePointsInWindow = countLiveVoicePointsInWindow(
     model.chartRelativeVoiceTrace,
     currentTime,
   );
+  const latestVoicedPoint = latestVoicedLiveVoicePoint(model.rawLiveVoiceTrace);
 
   return (
     <div className="pointer-events-none absolute inset-0 z-10 flex flex-col bg-black/62 px-8 pt-24 pb-40 text-white">
@@ -750,8 +771,13 @@ function PracticeOverlayImpl({
         <div className="pointer-events-auto absolute bottom-28 left-8 z-20 max-w-xl rounded-sm border border-white/18 bg-black/82 p-3 font-mono text-xs leading-relaxed text-white/75">
           <div>time {formatPlaybackTime(currentTime)}</div>
           <div>
-            raw trace points {rawTracePointsInWindow} scored trace points{" "}
-            {scoredTracePointsInWindow}
+            scale {model.vertical.source} min {model.vertical.min.toFixed(2)} max{" "}
+            {model.vertical.max.toFixed(2)} center {model.vertical.center.toFixed(2)} range{" "}
+            {model.vertical.range.toFixed(2)} manual={String(model.vertical.manualRange)}
+          </div>
+          <div>
+            raw trace total {model.rawLiveVoiceTrace.length} visible {visibleLiveTracePoints}{" "}
+            silence {silenceTracePointsInWindow} scored visible {scoredTracePointsInWindow}
           </div>
           <div>
             raw live{" "}
@@ -760,10 +786,28 @@ function PracticeOverlayImpl({
               : "--"}{" "}
             /{" "}
             {model.latestLiveVoicePoint
-              ? `${Math.round(model.latestLiveVoicePoint.rawHz)}Hz / ${model.latestLiveVoicePoint.rawMidi.toFixed(
-                  2,
-                )} raw / ${model.latestLiveVoicePoint.displayMidi.toFixed(2)} display st`
+              ? `${model.latestLiveVoicePoint.rawHz == null ? "--" : `${Math.round(model.latestLiveVoicePoint.rawHz)}Hz`} / ${
+                  model.latestLiveVoicePoint.rawMidi == null
+                    ? "--"
+                    : model.latestLiveVoicePoint.rawMidi.toFixed(2)
+                } raw / ${model.latestLiveVoicePoint.displayMidi.toFixed(2)} display st / ${
+                  model.latestLiveVoicePoint.kind
+                }`
               : "--"}
+          </div>
+          <div>
+            latest voiced raw{" "}
+            {latestVoicedPoint?.rawMidi == null ? "--" : latestVoicedPoint.rawMidi.toFixed(2)}{" "}
+            display {latestVoicedPoint == null ? "--" : latestVoicedPoint.displayMidi.toFixed(2)}{" "}
+            expected{" "}
+            {latestVoicedPoint?.expectedMidi == null
+              ? "--"
+              : latestVoicedPoint.expectedMidi.toFixed(2)}{" "}
+            cents{" "}
+            {latestVoicedPoint?.centsFromExpected == null
+              ? "--"
+              : latestVoicedPoint.centsFromExpected}{" "}
+            octave {latestVoicedPoint?.absoluteOctaveOffsetFromExpected ?? "--"}
           </div>
           <div>
             note{" "}
@@ -778,7 +822,7 @@ function PracticeOverlayImpl({
             {String(micDebug.comparisonAvailable)}
           </div>
           <div>
-            scored cents{" "}
+            raw cents{" "}
             {model.latestLiveCentsDifference == null ? "--" : model.latestLiveCentsDifference}
           </div>
           <div>

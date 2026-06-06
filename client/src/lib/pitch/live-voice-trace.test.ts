@@ -3,10 +3,11 @@ import { describe, expect, it } from "vitest";
 import type { PracticePitchFeedbackSettings } from "@/lib/practice/practice-settings";
 import { semitoneToFreq } from "./state";
 import {
+  buildLiveVoiceSilencePoint,
   buildRawLiveVoiceTracePoint,
   buildLiveVoiceTracePoint,
   computeRollingBaselineOctaveOffset,
-  foldMidiNearCenter,
+  liveVoiceAccuracyFromCents,
   LiveVoiceDisplayStabilizer,
   normalizeMicPitchForExpected,
   shouldConnectLiveVoiceTracePoints,
@@ -21,12 +22,6 @@ const settings: PracticePitchFeedbackSettings = {
 };
 
 describe("live voice trace helpers", () => {
-  it("folds raw MIDI around a display center without snapping to that center", () => {
-    expect(foldMidiNearCenter(57, A4)).toBe(69);
-    expect(foldMidiNearCenter(58, A4)).toBe(70);
-    expect(foldMidiNearCenter(59, A4)).toBe(71);
-  });
-
   it("builds raw live points without expected pitch metadata or scoring cents", () => {
     const point = buildRawLiveVoiceTracePoint({
       time: 1,
@@ -109,8 +104,60 @@ describe("live voice trace helpers", () => {
     const style = styleLiveVoiceTracePoint(point, settings);
 
     expect(style.accuracy).toBe("green");
-    expect(style.register).toBe("baseline");
+    expect(style.register).toBe("lower");
     expect(point.displayMidi).toBe(before);
+  });
+
+  it("classifies feedback colors using green yellow orange and red thresholds", () => {
+    expect(liveVoiceAccuracyFromCents(8, settings)).toBe("green");
+    expect(liveVoiceAccuracyFromCents(20, settings)).toBe("yellow");
+    expect(liveVoiceAccuracyFromCents(40, settings)).toBe("orange");
+    expect(liveVoiceAccuracyFromCents(80, settings)).toBe("red");
+    expect(liveVoiceAccuracyFromCents(null, settings)).toBe("none");
+  });
+
+  it("classifies register from octave offset against the expected pitch", () => {
+    const baseline = buildRawLiveVoiceTracePoint({
+      time: 1,
+      rawHz: semitoneToFreq(A4),
+      expectedMidi: A4,
+    });
+    const higher = buildRawLiveVoiceTracePoint({
+      time: 2,
+      rawHz: semitoneToFreq(A4 + 12),
+      expectedMidi: A4,
+    });
+    const lower = buildRawLiveVoiceTracePoint({
+      time: 3,
+      rawHz: semitoneToFreq(A4 - 12),
+      expectedMidi: A4,
+    });
+    const extreme = buildRawLiveVoiceTracePoint({
+      time: 4,
+      rawHz: semitoneToFreq(A4 + 24),
+      expectedMidi: A4,
+    });
+
+    if (!baseline || !higher || !lower || !extreme) throw new Error("expected points");
+    expect(styleLiveVoiceTracePoint(baseline, settings).register).toBe("baseline");
+    expect(styleLiveVoiceTracePoint(higher, settings).register).toBe("higher");
+    expect(styleLiveVoiceTracePoint(lower, settings).register).toBe("lower");
+    expect(styleLiveVoiceTracePoint(extreme, settings).register).toBe("extreme");
+  });
+
+  it("styles silence as a secondary neutral trace segment", () => {
+    const point = buildLiveVoiceSilencePoint({
+      time: 1,
+      displayMidi: A4,
+      rms: 0.001,
+    });
+
+    if (!point) throw new Error("expected point");
+    const style = styleLiveVoiceTracePoint(point, settings);
+    expect(point.kind).toBe("silence");
+    expect(point.voiced).toBe(false);
+    expect(style.accuracy).toBe("none");
+    expect(style.stroke).toContain("rgba(78, 82, 88");
   });
 
   it("allows scoring pitch to differ without changing trace position", () => {
