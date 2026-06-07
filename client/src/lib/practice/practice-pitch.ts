@@ -97,6 +97,7 @@ export interface BuildPracticeLaneArgs {
   windowAfter?: number;
   lyricDisplayOffsetSec?: number;
   lyricLeadSec?: number;
+  liveTraceDisplayOffsetSec?: number;
 }
 
 export interface MicLatencyAdjustmentEstimate {
@@ -441,6 +442,7 @@ export function buildRawLiveVoiceTrace(
   series: PitchSeries,
   chartNotes: PracticeExpectedNote[],
   calibration: PracticePitchCalibration = computeChartPitchCalibration(series, chartNotes),
+  liveTraceDisplayOffsetSec: number = 0,
 ): LiveVoiceTracePoint[] {
   void chartNotes;
   void calibration;
@@ -454,12 +456,12 @@ export function buildRawLiveVoiceTrace(
     if (!isFiniteNumber(time)) continue;
 
     if (hasStoredLiveDisplay) {
-      const point = storedLiveVoiceTracePoint(series, index, time);
+      const point = storedLiveVoiceTracePoint(series, index, time, liveTraceDisplayOffsetSec);
       if (point) points.push(point);
       continue;
     }
 
-    const point = legacyRawLiveVoiceTracePoint(series, index, time);
+    const point = legacyRawLiveVoiceTracePoint(series, index, time, liveTraceDisplayOffsetSec);
     if (point) points.push(point);
   }
 
@@ -470,9 +472,12 @@ function storedLiveVoiceTracePoint(
   series: PitchSeries,
   index: number,
   time: number,
+  liveTraceDisplayOffsetSec: number = 0,
 ): LiveVoiceTracePoint | null {
   const displayPitch = series.liveDisplayPitch?.[index] ?? null;
   if (!isFiniteNumber(displayPitch)) return null;
+  const displayTime =
+    time + (Number.isFinite(liveTraceDisplayOffsetSec) ? liveTraceDisplayOffsetSec : 0);
 
   const kind = normalizeLiveKind(series.liveKind?.[index]);
   const rawHz = kind === "voiced" ? (series.rawMicHz?.[index] ?? null) : null;
@@ -484,7 +489,7 @@ function storedLiveVoiceTracePoint(
       : null;
 
   return {
-    time,
+    time: displayTime,
     songTimeSec: time,
     rawHz,
     rawMidi,
@@ -525,6 +530,7 @@ function legacyRawLiveVoiceTracePoint(
   series: PitchSeries,
   index: number,
   time: number,
+  liveTraceDisplayOffsetSec: number = 0,
 ): LiveVoiceTracePoint | null {
   const rawHz = series.rawMicHz?.[index] ?? null;
   const voiced = series.rawMicVoiced?.[index] ?? rawHz != null;
@@ -533,8 +539,11 @@ function legacyRawLiveVoiceTracePoint(
     const rawMidi = series.rawMicMidi?.[index] ?? freqToSemitone(rawHz);
     if (!isFiniteNumber(rawMidi)) return null;
 
+    const displayTime =
+      time + (Number.isFinite(liveTraceDisplayOffsetSec) ? liveTraceDisplayOffsetSec : 0);
+
     return {
-      time,
+      time: displayTime,
       songTimeSec: time,
       rawHz,
       rawMidi,
@@ -581,6 +590,7 @@ export function buildChartRelativeVoiceTrace(
   series: PitchSeries,
   chartNotes: PracticeExpectedNote[],
   calibration: PracticePitchCalibration = computeChartPitchCalibration(series, chartNotes),
+  liveTraceDisplayOffsetSec: number = 0,
 ): LiveVoiceTracePoint[] {
   const points: LiveVoiceTracePoint[] = [];
   let pendingBreak = false;
@@ -612,7 +622,7 @@ export function buildChartRelativeVoiceTrace(
 
     const expectedMidi = note ? expectedMidiForNote(note, calibration) : refMidi;
     const point = buildLiveVoiceTracePoint({
-      time,
+      time: time + (Number.isFinite(liveTraceDisplayOffsetSec) ? liveTraceDisplayOffsetSec : 0),
       rawHz,
       expectedMidi,
       expectedLaneMidi: note?.pitch ?? refMidi,
@@ -654,8 +664,9 @@ export function buildLiveVoiceTrace(
   series: PitchSeries,
   chartNotes: PracticeExpectedNote[],
   calibration: PracticePitchCalibration = computeChartPitchCalibration(series, chartNotes),
+  liveTraceDisplayOffsetSec: number = 0,
 ): LiveVoiceTracePoint[] {
-  return buildRawLiveVoiceTrace(series, chartNotes, calibration);
+  return buildRawLiveVoiceTrace(series, chartNotes, calibration, liveTraceDisplayOffsetSec);
 }
 
 export function shouldConnectTracePoints(
@@ -948,6 +959,7 @@ export function buildPracticeLaneModel({
   semitoneRange = DEFAULT_PRACTICE_RANGE,
   lyricDisplayOffsetSec = 0,
   lyricLeadSec = SEGMENT_LEAD_SEC,
+  liveTraceDisplayOffsetSec = 0,
 }: BuildPracticeLaneArgs): PracticeLaneModel {
   const range = clampPracticeRange(semitoneRange);
   const currentSegmentIndex = findPracticeSegmentIndex(
@@ -963,11 +975,17 @@ export function buildPracticeLaneModel({
   const referenceTrace = buildReferenceTrace(series, chartNotes, pitchCalibration);
   const rawUserTrace = buildRawUserTrace(series, chartNotes, pitchCalibration);
   const userTrace = buildUserTrace(series, chartNotes, pitchCalibration);
-  const rawLiveVoiceTrace = buildRawLiveVoiceTrace(series, chartNotes, pitchCalibration);
+  const rawLiveVoiceTrace = buildRawLiveVoiceTrace(
+    series,
+    chartNotes,
+    pitchCalibration,
+    liveTraceDisplayOffsetSec,
+  );
   const chartRelativeVoiceTrace = buildChartRelativeVoiceTrace(
     series,
     chartNotes,
     pitchCalibration,
+    liveTraceDisplayOffsetSec,
   );
   const liveVoiceTrace = rawLiveVoiceTrace;
   const expectedNotes = hasChartNotes ? chartNotes : notesFromReferenceTrace(referenceTrace);

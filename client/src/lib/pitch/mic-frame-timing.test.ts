@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import type { TimedPitchDetectionFrame } from "./detect";
-import { micFrameProcessDecision, micFrameSongTime } from "./mic-frame-timing";
+import {
+  micFrameProcessDecision,
+  micFrameSongTime,
+  pitchWindowCenterOffsetMs,
+} from "./mic-frame-timing";
 
 function frame(id: number, detectedAtMs = 1_000): TimedPitchDetectionFrame {
   return {
@@ -10,6 +14,8 @@ function frame(id: number, detectedAtMs = 1_000): TimedPitchDetectionFrame {
     hz: 220,
     clarity: 0.95,
     rms: 0.04,
+    sampleRate: 48_000,
+    analysisWindowMs: 2048 / 48,
   };
 }
 
@@ -26,17 +32,21 @@ describe("mic frame timing helpers", () => {
     ).toBeCloseTo(9.72);
   });
 
-  it("applies positive live trace offset later in song time", () => {
+  it("uses mic/scoring latency only, not visual trace offset, for song time", () => {
     expect(
       micFrameSongTime({
         currentPlaybackTime: 10,
         nowMs: 1_200,
         detectedAtMs: 1_000,
         micLatencySec: 0.08,
-        liveTraceOffsetSec: 0.15,
         duration: 180,
       }),
-    ).toBeCloseTo(9.87);
+    ).toBeCloseTo(9.72);
+  });
+
+  it("computes pitch-window center timestamp correction", () => {
+    expect(pitchWindowCenterOffsetMs(48_000, 2048)).toBeCloseTo(21.333, 3);
+    expect(pitchWindowCenterOffsetMs(44_100, 2048)).toBeCloseTo(23.22, 2);
   });
 
   it("clamps frame song time to the song boundaries", () => {

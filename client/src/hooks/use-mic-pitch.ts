@@ -5,6 +5,7 @@ import {
 } from "@/bridge/microphone";
 import { useMicSamples } from "@/hooks/use-mic-samples";
 import { PITCH_WINDOW_SAMPLES } from "@/lib/pitch/constants";
+import { pitchWindowCenterOffsetMs } from "@/lib/pitch/mic-frame-timing";
 import {
   analyzePitchFrameFromSamplesMic,
   createMicPitchDetector,
@@ -99,10 +100,14 @@ export function useMicPitch(enabled: boolean) {
       analyzedSampleVersion = sampleVersionRef.current;
       const analysis = analyzePitchFrameFromSamplesMic(detector, window, sr);
       frameIdRef.current += 1;
+      const analysisWindowMs = (PITCH_WINDOW_SAMPLES / sr) * 1000;
+      const detectedAtMs = performance.now() - pitchWindowCenterOffsetMs(sr);
       const timedAnalysis = {
         ...analysis,
         id: frameIdRef.current,
-        detectedAtMs: performance.now(),
+        detectedAtMs,
+        sampleRate: sr,
+        analysisWindowMs,
       };
       setLatestAnalysisFrame(timedAnalysis);
       if (analysis.voiced && analysis.hz != null && analysis.clarity != null) {
@@ -113,6 +118,8 @@ export function useMicPitch(enabled: boolean) {
           rms: analysis.rms,
           id: timedAnalysis.id,
           detectedAtMs: timedAnalysis.detectedAtMs,
+          sampleRate: timedAnalysis.sampleRate,
+          analysisWindowMs: timedAnalysis.analysisWindowMs,
         });
       } else {
         invalidFrameCountRef.current += 1;

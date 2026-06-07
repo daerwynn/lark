@@ -905,7 +905,7 @@ describe("practice pitch adapter", () => {
     expect(filtered.livePointScored).toEqual([false, true, true]);
   });
 
-  it("keeps stored live trace visible when playback time advances past the attempt", () => {
+  it("keeps stored live trace visible when paused or mic capture is inactive", () => {
     const attemptSeries = withLiveDisplay(
       {
         times: [1, 1.2, 1.4],
@@ -933,6 +933,37 @@ describe("practice pitch adapter", () => {
     expect(model.rawLiveVoiceTrace).toHaveLength(3);
     expect(model.liveVoiceTrace).toHaveLength(3);
     expect(model.rawLiveVoiceTrace.map((point) => point.time)).toEqual([1, 1.2, 1.4]);
+    expect(model.latestLiveVoicePoint?.time).toBe(1.4);
+  });
+
+  it("applies visual trace offset to display time without changing stored song time", () => {
+    const attemptSeries = withLiveDisplay(
+      {
+        times: [1],
+        refPitches: [null],
+        userPitches: [null],
+        similarities: [0],
+        rawMicHz: [semitoneToFreq(10)],
+        rawMicMidi: [10],
+        rawMicVoiced: [true],
+      },
+      [10],
+      {
+        kind: ["voiced"],
+        cents: [0],
+        expectedChart: [10],
+      },
+    );
+
+    const model = buildPracticeLaneModel({
+      segments,
+      series: attemptSeries,
+      currentTime: 1,
+      liveTraceDisplayOffsetSec: 0.45,
+    });
+
+    expect(model.rawLiveVoiceTrace[0].time).toBeCloseTo(1.45);
+    expect(model.rawLiveVoiceTrace[0].songTimeSec).toBeCloseTo(1);
   });
 
   it("switches follow mode to review on pause without changing the review center later", () => {

@@ -19,6 +19,8 @@ export interface PitchDetectionFrame {
 export interface TimedPitchDetectionFrame extends PitchDetectionFrame {
   id: number;
   detectedAtMs: number;
+  sampleRate: number;
+  analysisWindowMs: number;
 }
 
 export type PitchAnalysisDropReason = "low-rms" | "low-clarity" | "out-of-range";
@@ -34,6 +36,8 @@ export interface PitchAnalysisFrame {
 export interface TimedPitchAnalysisFrame extends PitchAnalysisFrame {
   id: number;
   detectedAtMs: number;
+  sampleRate: number;
+  analysisWindowMs: number;
 }
 
 export function measureRms(samples: ArrayLike<number>): number {

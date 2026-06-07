@@ -32,7 +32,7 @@ describe("practice settings helpers", () => {
     expect(normalizeMicLatencyMs(83.7)).toBe(84);
   });
 
-  it("normalizes live trace timing offset", () => {
+  it("normalizes visual trace offset", () => {
     expect(normalizeLiveTraceOffsetMs(-5000)).toBe(-1000);
     expect(normalizeLiveTraceOffsetMs(5000)).toBe(1000);
     expect(normalizeLiveTraceOffsetMs(83.7)).toBe(84);

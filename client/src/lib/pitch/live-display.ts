@@ -41,6 +41,7 @@ export interface LiveDisplayVoicedInput {
   clarity?: number | null;
   rms?: number | null;
   scored?: boolean;
+  allowExpectedJump?: boolean;
 }
 
 export interface LiveDisplaySilenceInput {
@@ -180,6 +181,7 @@ export class LiveDisplayMapper {
     clarity = null,
     rms = null,
     scored = false,
+    allowExpectedJump = false,
   }: LiveDisplayVoicedInput): PitchLiveDisplayFrame {
     const pitchMidi = isFiniteNumber(displayMidi)
       ? displayMidi
@@ -240,7 +242,7 @@ export class LiveDisplayMapper {
       const displayPitch = locked
         ? mapping.displayPitch
         : snapToRefOctave(safeChartPitch, pitchMidi);
-      const jumpOutlier = this.rejectDisplayJump(displayPitch);
+      const jumpOutlier = this.rejectDisplayJump(displayPitch, allowExpectedJump);
       if (jumpOutlier) {
         return this.heldOutlier({
           chartPitch: safeChartPitch,
@@ -287,7 +289,7 @@ export class LiveDisplayMapper {
       currentOffset == null
         ? pitchMidi
         : this.placeGapPitch(pitchMidi - currentOffset, this.lastDisplayPitch);
-    const jumpOutlier = this.rejectDisplayJump(displayPitch);
+    const jumpOutlier = this.rejectDisplayJump(displayPitch, allowExpectedJump);
     if (jumpOutlier) {
       return this.heldOutlier({
         chartPitch: null,
@@ -430,11 +432,17 @@ export class LiveDisplayMapper {
       : snapToRefOctave(fallback, pitch);
   }
 
-  private rejectDisplayJump(displayPitch: number): boolean {
+  private rejectDisplayJump(displayPitch: number, allowExpectedJump: boolean = false): boolean {
     if (!Number.isFinite(displayPitch) || this.lastDisplayPitch == null) return false;
 
     const jump = Math.abs(displayPitch - this.lastDisplayPitch);
     if (jump <= this.jumpThresholdSemitones) {
+      this.pendingJumpPitch = null;
+      this.pendingJumpCount = 0;
+      return false;
+    }
+
+    if (allowExpectedJump) {
       this.pendingJumpPitch = null;
       this.pendingJumpCount = 0;
       return false;

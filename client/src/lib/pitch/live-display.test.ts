@@ -121,4 +121,20 @@ describe("live display mapper", () => {
     expect(spike.displayPitch).toBeCloseTo(first.displayPitch ?? 0);
     expect(spike.dropReason).toBe("display-outlier");
   });
+
+  it("accepts a display jump when the stabilizer approved an expected note change", () => {
+    const mapper = new LiveDisplayMapper({ jumpThresholdSemitones: 4, confirmedJumpFrames: 2 });
+
+    const first = mapper.mapVoiced({ displayMidi: 65, chartPitch: 5, guideOffset: 60 });
+    const jump = mapper.mapVoiced({
+      displayMidi: 72,
+      chartPitch: 12,
+      guideOffset: 60,
+      allowExpectedJump: true,
+    });
+
+    expect(first.kind).toBe("voiced");
+    expect(jump.kind).toBe("voiced");
+    expect(jump.displayPitch).toBeCloseTo(12);
+  });
 });

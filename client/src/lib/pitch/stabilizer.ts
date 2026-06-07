@@ -5,6 +5,8 @@ import { freqToSemitone, semitoneToFreq, snapToRefOctave } from "./state";
 export interface LivePitchStabilizerOptions {
   expectedHz?: number | null;
   referenceHz?: number | null;
+  allowExpectedJump?: boolean;
+  expectedJumpToleranceSemitones?: number;
 }
 
 export interface LivePitchStabilizerConfig {
@@ -22,10 +24,17 @@ export interface LivePitchStabilizerConfig {
 export interface LivePitchStabilizerStatus {
   voiced: boolean;
   reacquiring: boolean;
+  expectedJumpAccepted: boolean;
 }
 
+export const SCORING_MEDIAN_WINDOW = 5;
+export const DISPLAY_MEDIAN_WINDOW = 3;
+export const DISPLAY_JUMP_THRESHOLD_ST = 4;
+export const DISPLAY_CONFIRMED_JUMP_FRAMES = 2;
+export const DISPLAY_EXPECTED_TARGET_TOLERANCE_ST = 2;
+
 const DEFAULT_CONFIG: LivePitchStabilizerConfig = {
-  medianWindow: 5,
+  medianWindow: SCORING_MEDIAN_WINDOW,
   jumpThresholdSemitones: 5,
   confirmedJumpFrames: 2,
   pendingToleranceSemitones: 1.5,
@@ -64,6 +73,7 @@ export class LivePitchStabilizer {
   private reacquireCount = 0;
   private voiced = false;
   private recentSemi: number[] = [];
+  private expectedJumpAccepted = false;
 
   constructor(config: Partial<LivePitchStabilizerConfig> = {}) {
     this.config = { ...DEFAULT_CONFIG, ...config };
@@ -79,10 +89,15 @@ export class LivePitchStabilizer {
     this.reacquireCount = 0;
     this.voiced = false;
     this.recentSemi = [];
+    this.expectedJumpAccepted = false;
   }
 
   status(): LivePitchStabilizerStatus {
-    return { voiced: this.voiced, reacquiring: this.reacquiring };
+    return {
+      voiced: this.voiced,
+      reacquiring: this.reacquiring,
+      expectedJumpAccepted: this.expectedJumpAccepted,
+    };
   }
 
   private enterReacquire(): void {
@@ -94,6 +109,7 @@ export class LivePitchStabilizer {
     this.reacquireSemi = null;
     this.reacquireCount = 0;
     this.voiced = false;
+    this.expectedJumpAccepted = false;
   }
 
   private passesReacquireGate(frame: PitchDetectionFrame): boolean {
@@ -129,6 +145,7 @@ export class LivePitchStabilizer {
     frame: PitchDetectionFrame | null,
     options: LivePitchStabilizerOptions = {},
   ): number | null {
+    this.expectedJumpAccepted = false;
     if (!frame || !isFinitePositive(frame.hz)) {
       this.missingFrameCount += 1;
       if (this.missingFrameCount >= this.config.missingFrameResetCount) {
@@ -153,22 +170,37 @@ export class LivePitchStabilizer {
     if (this.stableSemi != null) {
       const jump = Math.abs(correctedSemi - this.stableSemi);
       if (jump > this.config.jumpThresholdSemitones) {
+        const targetHz = options.expectedHz ?? options.referenceHz;
+        const targetSemi = isFinitePositive(targetHz) ? freqToSemitone(targetHz) : null;
+        const expectedTolerance =
+          options.expectedJumpToleranceSemitones ?? DISPLAY_EXPECTED_TARGET_TOLERANCE_ST;
         if (
-          this.pendingJumpSemi != null &&
-          Math.abs(correctedSemi - this.pendingJumpSemi) <= this.config.pendingToleranceSemitones
+          options.allowExpectedJump &&
+          targetSemi != null &&
+          Math.abs(correctedSemi - targetSemi) <= expectedTolerance
         ) {
-          this.pendingJumpCount += 1;
+          this.expectedJumpAccepted = true;
+          this.pendingJumpSemi = null;
+          this.pendingJumpCount = 0;
+          this.recentSemi = [];
         } else {
-          this.pendingJumpSemi = correctedSemi;
-          this.pendingJumpCount = 1;
-        }
+          if (
+            this.pendingJumpSemi != null &&
+            Math.abs(correctedSemi - this.pendingJumpSemi) <= this.config.pendingToleranceSemitones
+          ) {
+            this.pendingJumpCount += 1;
+          } else {
+            this.pendingJumpSemi = correctedSemi;
+            this.pendingJumpCount = 1;
+          }
 
-        if (this.pendingJumpCount < this.config.confirmedJumpFrames) {
-          this.voiced = false;
-          return null;
-        }
+          if (this.pendingJumpCount < this.config.confirmedJumpFrames) {
+            this.voiced = false;
+            return null;
+          }
 
-        this.recentSemi = [];
+          this.recentSemi = [];
+        }
       }
     }
 

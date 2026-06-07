@@ -2,7 +2,13 @@ import { describe, expect, it } from "vitest";
 
 import type { PitchDetectionFrame } from "./detect";
 import { semitoneToFreq } from "./state";
-import { LivePitchStabilizer, correctPitchOctave } from "./stabilizer";
+import {
+  DISPLAY_CONFIRMED_JUMP_FRAMES,
+  DISPLAY_JUMP_THRESHOLD_ST,
+  DISPLAY_MEDIAN_WINDOW,
+  LivePitchStabilizer,
+  correctPitchOctave,
+} from "./stabilizer";
 
 function frame(hz: number, clarity = 0.95, rms = 0.04): PitchDetectionFrame {
   return { hz, clarity, rms };
@@ -81,5 +87,55 @@ describe("live pitch stabilizer", () => {
     expect(stabilizer.stabilize(frame(330, 0.95, 0.003))).toBeNull();
     expect(stabilizer.stabilize(frame(330))).toBeNull();
     expect(stabilizer.stabilize(frame(330))).toBeCloseTo(330, 4);
+  });
+
+  it("lets display tracking follow a short chart-guided pitch change", () => {
+    const display = new LivePitchStabilizer({
+      medianWindow: DISPLAY_MEDIAN_WINDOW,
+      jumpThresholdSemitones: DISPLAY_JUMP_THRESHOLD_ST,
+      confirmedJumpFrames: DISPLAY_CONFIRMED_JUMP_FRAMES,
+      reacquireFrames: 1,
+    });
+    const a4 = semitoneToFreq(69);
+    const e5 = semitoneToFreq(76);
+
+    expect(display.stabilize(frame(a4), { expectedHz: a4 })).toBeCloseTo(a4, 4);
+    expect(
+      display.stabilize(frame(e5), {
+        expectedHz: e5,
+        allowExpectedJump: true,
+      }),
+    ).toBeCloseTo(e5, 4);
+    expect(display.status().expectedJumpAccepted).toBe(true);
+  });
+
+  it("keeps scoring smoothing stricter than the display path", () => {
+    const scoring = new LivePitchStabilizer();
+    const a4 = semitoneToFreq(69);
+    const e5 = semitoneToFreq(76);
+
+    expect(scoring.stabilize(frame(a4), { expectedHz: a4 })).toBeCloseTo(a4, 4);
+    expect(scoring.stabilize(frame(e5), { expectedHz: e5 })).toBeNull();
+    expect(scoring.status().expectedJumpAccepted).toBe(false);
+  });
+
+  it("still rejects a one-frame impossible spike away from the expected pitch", () => {
+    const display = new LivePitchStabilizer({
+      medianWindow: DISPLAY_MEDIAN_WINDOW,
+      jumpThresholdSemitones: DISPLAY_JUMP_THRESHOLD_ST,
+      confirmedJumpFrames: DISPLAY_CONFIRMED_JUMP_FRAMES,
+      reacquireFrames: 1,
+    });
+    const a4 = semitoneToFreq(69);
+    const expectedB4 = semitoneToFreq(71);
+    const impossibleSpike = semitoneToFreq(76);
+
+    expect(display.stabilize(frame(a4), { expectedHz: a4 })).toBeCloseTo(a4, 4);
+    expect(
+      display.stabilize(frame(impossibleSpike), {
+        expectedHz: expectedB4,
+        allowExpectedJump: true,
+      }),
+    ).toBeNull();
   });
 });

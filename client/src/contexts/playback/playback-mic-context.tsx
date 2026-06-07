@@ -131,7 +131,6 @@ export function PlaybackMicProvider({ config, children }: PlaybackMicProviderPro
       isReady,
       duration,
       micLatencySec: effectiveLatencyMs / 1000,
-      liveTraceOffsetSec: practiceSettings.liveTraceOffsetMs / 1000,
       getVocalsBuffer,
       subscribe,
       segments,

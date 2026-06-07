@@ -261,9 +261,10 @@ export function PlaybackSettingsPanel({ config, open, onClose }: PlaybackSetting
             </Field>
 
             <Field>
-              <Label>Microphone latency</Label>
+              <Label>Mic/scoring latency</Label>
               <FieldDescription>
-                Visual/scoring latency for mic frames. This does not change USDX GAP/BPM.
+                Shifts mic frame song time for pitch comparison and scoring. This does not move USDX
+                GAP/BPM or the visual-only trace offset.
               </FieldDescription>
               <div className="flex flex-wrap gap-2">
                 {MIC_LATENCY_STEPS_MS.map((step) => (
@@ -296,16 +297,17 @@ export function PlaybackSettingsPanel({ config, open, onClose }: PlaybackSetting
                   step={5}
                   value={settings.micLatencyMs}
                   onChange={(event) => updateMicLatency(event.currentTarget.valueAsNumber)}
-                  aria-label="Microphone visual latency in milliseconds"
+                  aria-label="Microphone scoring latency in milliseconds"
                 />
                 <span className="text-sm text-white/60">ms</span>
               </div>
             </Field>
 
             <Field>
-              <Label>Live trace timing offset</Label>
+              <Label>Visual trace offset</Label>
               <FieldDescription>
-                Positive values move the mic trace later; negative values move it earlier.
+                Moves the rendered mic trace for review only. Positive values draw the trace later;
+                negative values draw it earlier. Scoring and USDX GAP/BPM are unchanged.
               </FieldDescription>
               <div className="flex flex-wrap gap-2">
                 {MIC_LATENCY_STEPS_MS.map((step) => (
@@ -341,7 +343,7 @@ export function PlaybackSettingsPanel({ config, open, onClose }: PlaybackSetting
                   step={10}
                   value={settings.liveTraceOffsetMs}
                   onChange={(event) => updateLiveTraceOffset(event.currentTarget.valueAsNumber)}
-                  aria-label="Live trace timing offset in milliseconds"
+                  aria-label="Visual trace offset in milliseconds"
                 />
                 <span className="text-sm text-white/60">ms</span>
               </div>
