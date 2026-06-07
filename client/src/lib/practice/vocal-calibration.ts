@@ -78,6 +78,18 @@ export function vocalCalibrationMatchesDevice(
   return calibration.device_name === deviceName;
 }
 
+export function micCalibrationDeviceName({
+  activeDeviceName,
+  selectedDeviceName,
+  lastKnownDeviceName,
+}: {
+  activeDeviceName: string | null | undefined;
+  selectedDeviceName: string | null | undefined;
+  lastKnownDeviceName: string | null | undefined;
+}): string | null {
+  return activeDeviceName ?? selectedDeviceName ?? lastKnownDeviceName ?? null;
+}
+
 export function effectiveMicLatencyMs({
   profileCalibration,
   activeDeviceName,

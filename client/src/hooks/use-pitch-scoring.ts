@@ -305,6 +305,9 @@ export function usePitchScoring(
     if (!isReady || duration <= 0) {
       return;
     }
+    // This is a song/chart session reset, not a mic settings reset. Mic latency
+    // and pitch calibration offsets apply to new frames only; changing them
+    // must not erase paused/reviewable attempt history.
     bufferRef.current.reset();
     attemptBufferRef.current.reset();
     stabilizerRef.current.reset();
@@ -331,7 +334,7 @@ export function usePitchScoring(
     setScore(0);
     setDebug(EMPTY_DEBUG);
     setTimingDiagnostics(nextTimingDiagnostics);
-  }, [isReady, duration, getVocalsBuffer, chartNotes, micLatencySec, micPitchOffsetCents]);
+  }, [isReady, duration, getVocalsBuffer, chartNotes]);
 
   useEffect(() => {
     if (!isReady) {

@@ -6,6 +6,7 @@ import {
   applyPitchOffsetToHz,
   effectiveMicLatencyMs,
   estimateVocalCalibration,
+  micCalibrationDeviceName,
   vocalCalibrationMatchesDevice,
   type CalibrationPitchFrame,
 } from "./vocal-calibration";
@@ -96,5 +97,29 @@ describe("vocal calibration helpers", () => {
         fallbackMs: 80,
       }),
     ).toBe(80);
+  });
+
+  it("keeps a calibration device name while mic capture is paused", () => {
+    expect(
+      micCalibrationDeviceName({
+        activeDeviceName: "Live Mic",
+        selectedDeviceName: "Selected Mic",
+        lastKnownDeviceName: "Previous Mic",
+      }),
+    ).toBe("Live Mic");
+    expect(
+      micCalibrationDeviceName({
+        activeDeviceName: null,
+        selectedDeviceName: "Selected Mic",
+        lastKnownDeviceName: "Previous Mic",
+      }),
+    ).toBe("Selected Mic");
+    expect(
+      micCalibrationDeviceName({
+        activeDeviceName: null,
+        selectedDeviceName: null,
+        lastKnownDeviceName: "Previous Mic",
+      }),
+    ).toBe("Previous Mic");
   });
 });

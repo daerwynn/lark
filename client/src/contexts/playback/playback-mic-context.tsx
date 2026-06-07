@@ -16,6 +16,7 @@ import type { PitchSeries } from "@/lib/pitch/state";
 import { practiceSettingsFromConfig } from "@/lib/practice/practice-settings";
 import {
   effectiveMicLatencyMs,
+  micCalibrationDeviceName,
   vocalCalibrationMatchesDevice,
 } from "@/lib/practice/vocal-calibration";
 import { useProfiles } from "@/queries/use-profiles";
@@ -85,6 +86,7 @@ export function PlaybackMicProvider({ config, children }: PlaybackMicProviderPro
   );
   const [selectedMicId, setSelectedMicId] = useState<string | null>(config?.preferred_mic ?? null);
   const [monitorStatus, setMonitorStatus] = useState<MicMonitorStatus | null>(null);
+  const lastKnownMicDeviceNameRef = useRef<string | null>(config?.preferred_mic ?? null);
 
   const micDevices = useMicDevices();
 
@@ -106,16 +108,33 @@ export function PlaybackMicProvider({ config, children }: PlaybackMicProviderPro
   } = useMicPitch(micPitchEnabled);
   const reactiveRef = useMicReactive(micPitchEnabled);
   const practiceSettings = useMemo(() => practiceSettingsFromConfig(config), [config]);
+
+  useEffect(() => {
+    if (activeMicDeviceName) {
+      lastKnownMicDeviceNameRef.current = activeMicDeviceName;
+    } else if (selectedMicId) {
+      lastKnownMicDeviceNameRef.current = selectedMicId;
+    }
+  }, [activeMicDeviceName, selectedMicId]);
+
+  const calibrationDeviceName = micCalibrationDeviceName({
+    activeDeviceName: activeMicDeviceName,
+    selectedDeviceName: selectedMicId,
+    lastKnownDeviceName: lastKnownMicDeviceNameRef.current,
+  });
   const profileCalibration =
     profileStore?.active == null
       ? null
       : (profileStore.vocal_calibrations[profileStore.active] ?? null);
-  const matchedCalibration = vocalCalibrationMatchesDevice(profileCalibration, activeMicDeviceName)
+  const matchedCalibration = vocalCalibrationMatchesDevice(
+    profileCalibration,
+    calibrationDeviceName,
+  )
     ? profileCalibration
     : null;
   const effectiveLatencyMs = effectiveMicLatencyMs({
     profileCalibration,
-    activeDeviceName: activeMicDeviceName,
+    activeDeviceName: calibrationDeviceName,
     fallbackMs: practiceSettings.micLatencyMs,
   });
 
@@ -217,7 +236,7 @@ export function PlaybackMicProvider({ config, children }: PlaybackMicProviderPro
       micUserEnabled,
       micMonitorUserEnabled,
       selectedMicId,
-      micName: activeMicDeviceName ?? selectedMicId ?? "Default",
+      micName: activeMicDeviceName ?? calibrationDeviceName ?? "Default",
       pitchScore: micReady ? score : null,
       rawScore: score,
       series,
@@ -234,6 +253,7 @@ export function PlaybackMicProvider({ config, children }: PlaybackMicProviderPro
     micMonitorUserEnabled,
     selectedMicId,
     activeMicDeviceName,
+    calibrationDeviceName,
     score,
     series,
     attemptSeries,
